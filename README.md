@@ -2,14 +2,14 @@
 
 <div align="center">
 
-<img src="https://readme-typing-svg.demolab.com?font=JetBrains+Mono&weight=700&size=30&pause=1200&color=00BFFF&center=true&vCenter=true&width=900&lines=ScanRunner;Interactive+Nmap+Automation+Framework;Built+for+VAPT+Engagements;Assessment+Workflow+Automation" />
+<img src="https://readme-typing-svg.demolab.com?font=JetBrains+Mono&weight=700&size=30&pause=1200&color=00BFFF&center=true&vCenter=true&width=900&lines=scanrunner;Interactive+Nmap+Automation+Framework;Built+for+VAPT+Engagements;Assessment+Workflow+Automation" />
 
 <br>
 
-<img src="https://img.shields.io/github/stars/Madhav-Sai/ScanRunner?style=for-the-badge&color=0891b2" />
-<img src="https://img.shields.io/github/forks/Madhav-Sai/ScanRunner?style=for-the-badge&color=0ea5e9" />
-<img src="https://img.shields.io/github/license/Madhav-Sai/ScanRunner?style=for-the-badge&color=2563eb" />
-<img src="https://img.shields.io/github/last-commit/Madhav-Sai/ScanRunner?style=for-the-badge&color=1d4ed8" />
+<img src="https://img.shields.io/github/stars/Madhav-Sai/scanrunner?style=for-the-badge&color=0891b2" />
+<img src="https://img.shields.io/github/forks/Madhav-Sai/scanrunner?style=for-the-badge&color=0ea5e9" />
+<img src="https://img.shields.io/github/license/Madhav-Sai/scanrunner?style=for-the-badge&color=2563eb" />
+<img src="https://img.shields.io/github/last-commit/Madhav-Sai/scanrunner?style=for-the-badge&color=1d4ed8" />
 
 <br>
 
@@ -39,7 +39,7 @@
 
 ## Overview
 
-ScanRunner is an interactive Nmap automation framework designed for:
+scanrunner is an interactive Nmap automation framework designed for:
 
 - Vulnerability Assessment & Penetration Testing (VAPT)
 - Internal Network Assessments
@@ -48,11 +48,11 @@ ScanRunner is an interactive Nmap automation framework designed for:
 - Infrastructure Discovery
 - Continuous Security Reviews
 
-Instead of replacing Nmap, ScanRunner acts as an orchestration layer that simplifies scan management, report handling, session recovery, and workflow automation.
+Instead of replacing Nmap, scanrunner acts as an orchestration layer that simplifies scan management, report handling, session recovery, and workflow automation.
 
 ---
 
-## Why ScanRunner?
+## Why scanrunner?
 
 Traditional Nmap workflows become painful during large assessments:
 
@@ -65,7 +65,7 @@ Traditional Nmap workflows become painful during large assessments:
 • No session recovery
 ```
 
-ScanRunner solves these problems through automation.
+scanrunner solves these problems through automation.
 
 ---
 
@@ -147,9 +147,9 @@ ScanRunner solves these problems through automation.
 ### Clone Repository
 
 ```bash
-git clone https://github.com/Madhav-Sai/ScanRunner.git
+git clone https://github.com/Madhav-Sai/scanrunner.git
 
-cd ScanRunner
+cd scanrunner
 ```
 
 ### Install Dependencies
@@ -441,7 +441,7 @@ Ensure all scanning activities are conducted within authorized scope and applica
 
 <div align="center">
 
-### ScanRunner
+### scanrunner
 
 Interactive Nmap Workflow Automation Framework
 
