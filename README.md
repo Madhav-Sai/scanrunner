@@ -1,23 +1,21 @@
-# ScanRunner
-
 <div align="center">
 
-<img src="https://readme-typing-svg.demolab.com?font=JetBrains+Mono&weight=700&size=30&pause=1200&color=00BFFF&center=true&vCenter=true&width=900&lines=scanrunner;Interactive+Nmap+Automation+Framework;Built+for+VAPT+Engagements;Assessment+Workflow+Automation" />
+<img src="https://readme-typing-svg.demolab.com?font=JetBrains+Mono&weight=700&size=34&pause=1200&color=00BFFF&center=true&vCenter=true&width=1000&height=80&lines=ScanRunner;Interactive+Nmap+Automation+Framework;Built+for+VAPT+Engagements" />
 
 <br>
 
-<img src="https://img.shields.io/github/stars/Madhav-Sai/scanrunner?style=for-the-badge&color=0891b2" />
-<img src="https://img.shields.io/github/forks/Madhav-Sai/scanrunner?style=for-the-badge&color=0ea5e9" />
-<img src="https://img.shields.io/github/license/Madhav-Sai/scanrunner?style=for-the-badge&color=2563eb" />
-<img src="https://img.shields.io/github/last-commit/Madhav-Sai/scanrunner?style=for-the-badge&color=1d4ed8" />
+<img src="https://img.shields.io/github/stars/Madhav-Sai/ScanRunner?style=for-the-badge&color=0891b2" />
+<img src="https://img.shields.io/github/forks/Madhav-Sai/ScanRunner?style=for-the-badge&color=0284c7" />
+<img src="https://img.shields.io/github/license/Madhav-Sai/ScanRunner?style=for-the-badge&color=2563eb" />
+<img src="https://img.shields.io/github/last-commit/Madhav-Sai/ScanRunner?style=for-the-badge&color=1d4ed8" />
 
-<br>
+<br><br>
 
 <img src="https://img.shields.io/badge/Python-3.8+-3776AB?style=for-the-badge&logo=python&logoColor=white" />
 <img src="https://img.shields.io/badge/Nmap-Required-004170?style=for-the-badge" />
 <img src="https://img.shields.io/badge/Platform-Linux-success?style=for-the-badge&logo=linux" />
 <img src="https://img.shields.io/badge/Status-Active-success?style=for-the-badge" />
-<img src="https://img.shields.io/badge/Security-VAPT-blue?style=for-the-badge" />
+<img src="https://img.shields.io/badge/Security-VAPT-0ea5e9?style=for-the-badge" />
 
 <br><br>
 
@@ -28,7 +26,10 @@
  ___/ / /__/ /_/ / / / // _, _/ /_/ / / / / / / /  __/ /    
 /____/\___/\__,_/_/ /_//_/ |_|\__,_/_/ /_/_/ /_/\___/_/     
 ```
-**Automate. Resume. Track. Enumerate.**
+
+### Interactive Nmap Automation Framework
+
+*Automate • Resume • Track • Enumerate*
 
 </div>
 
