@@ -193,13 +193,14 @@ def progress_bar(current, total):
 #  LIVE TIMER
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class LiveTimer:
-    """Prints a live elapsed-time ticker on a background thread."""
+    """Print elapsed time every 60 seconds."""
 
     def __init__(self):
-        self._stop   = threading.Event()
+        self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
-        self._start  = None
+        self._start = None
 
     def start(self):
         self._start = time.time()
@@ -207,22 +208,17 @@ class LiveTimer:
 
     def stop(self):
         self._stop.set()
-        self._thread.join(timeout=2)
-        sys.stdout.write("\r" + " " * 70 + "\r")
-        sys.stdout.flush()
 
     def _run(self):
+        time.sleep(60)
         while not self._stop.is_set():
             elapsed = int(time.time() - self._start)
             mins, secs = divmod(elapsed, 60)
-            sys.stdout.write(
-                "\r" + c(C.MAGENTA,
-                    f"  ⏱  Scanning ...  {mins:02d}:{secs:02d}  "
-                    f"(Ctrl+X to skip this host)")
-            )
-            sys.stdout.flush()
-            time.sleep(1)
-
+            print(f"\\n[Timer] Scan running for {mins:02d}:{secs:02d} (Ctrl+X to skip)")
+            for _ in range(60):
+                if self._stop.is_set():
+                    return
+                time.sleep(1)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  SKIP-WHILE-SCANNING
@@ -314,7 +310,7 @@ def _build_nmap_command(ip, output_file, custom_args, use_pn=False):
     except ValueError as e:
         print(c(C.RED, f"[!] Invalid nmap arguments: {e}"))
         sys.exit(1)
-    cmd.extend(["--", ip, "-oN", output_file])
+    cmd.extend([ip, "-oN", output_file])
     return cmd
 
 
@@ -381,13 +377,13 @@ def main():
     completed_ips = set()
     if os.path.exists(completed_file):
         try:
-            resume = input(c(C.CYAN, "  Resume previous session? [y/n]: ")).strip().lower()
+            resume = input(c(C.CYAN, "\n  [1] Resume completed hosts\n  [2] Review existing scans\n  [3] Fresh scan\n\n  Choice: ")).strip()
         except (KeyboardInterrupt, EOFError):
             print(c(C.RED + C.BOLD, "\n\n  [!] Interrupted. Exiting cleanly."))
             restore_terminal()
             sys.exit(0)
 
-        if resume == "y":
+        if resume == "1":
             with open(completed_file) as f:
                 completed_ips = {
                     line.split("|")[-1].strip()
@@ -406,7 +402,22 @@ def main():
             seen_input.add(ip)
             ips.append(ip)
 
-    pending_ips   = [ip for ip in ips if ip not in completed_ips]
+    if completed_ips:
+
+        mode = input(
+            c(C.CYAN,
+            "\n  [r] Resume previous session\n"
+            "  [f] Start fresh (review existing scans again)\n"
+            "  Choice: ")
+        ).strip().lower()
+
+        if mode == "r":
+            pending_ips = [ip for ip in ips if ip not in completed_ips]
+        else:
+            pending_ips = ips
+    else:
+        pending_ips = ips
+
     total_pending = len(pending_ips)
     scanned_count = 0
 
@@ -517,7 +528,15 @@ def main():
             elif result is True:
                 print(c(C.GREEN + C.BOLD, f"\n  [✔] Completed {ip} in {elapsed}s"))
                 log_to_file(completed_file, ip)
-                if not os.path.exists(output_file):
+                found_output = False
+
+                for _ in range(5):
+                    if os.path.exists(output_file):
+                        found_output = True
+                        break
+                    time.sleep(1)
+
+                if not found_output:
                     print(c(C.YELLOW, f"  [!] nmap exited OK but wrote no output file for {ip}"))
                     log_to_file(failed_file, ip)
 
