@@ -1,13 +1,13 @@
 <div align="center">
 
-<img src="https://readme-typing-svg.demolab.com?font=JetBrains+Mono&weight=700&size=34&pause=1200&color=00BFFF&center=true&vCenter=true&width=1000&height=80&lines=ScanRunner;Interactive+Nmap+Automation+Framework;Built+for+VAPT+Engagements" />
+<img src="https://readme-typing-svg.demolab.com?font=JetBrains+Mono&weight=700&size=34&pause=1200&color=00BFFF&center=true&vCenter=true&width=1000&height=80&lines=scanrunner;Interactive+Nmap+Automation+Framework;Built+for+VAPT+Engagements" />
 
 <br>
 
-<img src="https://img.shields.io/github/stars/Madhav-Sai/ScanRunner?style=for-the-badge&color=0891b2" />
-<img src="https://img.shields.io/github/forks/Madhav-Sai/ScanRunner?style=for-the-badge&color=0284c7" />
-<img src="https://img.shields.io/github/license/Madhav-Sai/ScanRunner?style=for-the-badge&color=2563eb" />
-<img src="https://img.shields.io/github/last-commit/Madhav-Sai/ScanRunner?style=for-the-badge&color=1d4ed8" />
+<img src="https://img.shields.io/github/stars/Madhav-Sai/scanrunner?style=for-the-badge&color=0891b2" />
+<img src="https://img.shields.io/github/forks/Madhav-Sai/scanrunner?style=for-the-badge&color=0284c7" />
+<img src="https://img.shields.io/github/license/Madhav-Sai/scanrunner?style=for-the-badge&color=2563eb" />
+<img src="https://img.shields.io/github/last-commit/Madhav-Sai/scanrunner?style=for-the-badge&color=1d4ed8" />
 
 <br><br>
 
