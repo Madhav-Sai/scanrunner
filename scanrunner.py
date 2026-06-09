@@ -47,7 +47,6 @@ def banner():
                                 
 """
     print(c(C.CYAN + C.BOLD, art))
-    print(c(C.MAGENTA + C.BOLD, name))
     print(c(C.DIM, "  Automated Nmap wrapper — resume • skip • color\n"))
 
 
