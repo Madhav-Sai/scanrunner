@@ -202,26 +202,30 @@ python3 scanrunner.py (-f <targets.txt> | -i <target>) [-o <output_folder>] [nma
 
 ### Section Help
 
-Run `python3 scanrunner.py` with no arguments to display the grouped command
-overview and ASCII banner. Read a focused help page without supplying a target
-file or installing Nmap/NXC:
+`scanrunner -h` now shows only the entry points, so users are not flooded with
+unrelated Nmap, NetExec, reporting, and automation flags at once.
 
 ```bash
-python3 scanrunner.py --help nxc
-python3 scanrunner.py -nxc -h
-python3 scanrunner.py --template -h
-python3 scanrunner.py --split -h
-python3 scanrunner.py --help nmap
-python3 scanrunner.py --help reports
+scanrunner -h
 ```
 
-Every regular flag also has focused help. Use either form below, and use
-`--help-all` to print the full option reference:
+Open the nested help page for the workflow you need:
 
 ```bash
-python3 scanrunner.py --parallel -h
-python3 scanrunner.py --help output
-python3 scanrunner.py --help-all
+scanrunner --nmap -h
+scanrunner --template -h
+scanrunner -nxc -h
+scanrunner --split -h
+scanrunner --reports -h
+```
+
+Individual option help remains available, while the intentionally verbose
+reference is kept behind `--help-all`:
+
+```bash
+scanrunner --parallel -h
+scanrunner --help output
+scanrunner --help-all
 ```
 
 ### Examples
@@ -462,8 +466,9 @@ inventory in CSV and JSON. `--html-report` also writes `open-ports-report.html`.
 ### NetExec (NXC) tables
 
 Use `-nxc` (or `--nxc`) to run any installed NetExec protocol and its native
-options against the supplied target or target file. scanrunner saves the complete
-NetExec output plus a terminal table and CSV/JSON table export.
+options against the supplied target or target file. scanrunner supports both the
+`nxc` and `netexec` launcher names, streams NetExec output live, and then saves
+the complete output plus terminal, CSV, and JSON tables.
 
 ```bash
 # General SMB inventory table; any normal NXC options are passed through.
