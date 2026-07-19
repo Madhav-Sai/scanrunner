@@ -27,16 +27,16 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 SCAN_PROFILES = {
     "quick": ["-sV", "-T4", "--top-ports", "100"],
     "full": ["-sS", "-sV", "-O", "-T4", "-p-"],
-    "web": ["-sV", "-p", "80,443,8080,8443", "--script", "http-title,http-headers"],
+    "web": ["-sV", "--script", "http-title,http-headers"],
     "udp": ["-sU", "-sV", "--top-ports", "100"],
     "vuln": ["-sV", "--script", "vuln"],
     "full-fast": ["-sV", "-A", "-Pn", "--min-rate", "200", "-p-"],
-    "ssl-ciphers": ["-sV", "-p", "443,8443,9443", "--script", "ssl-enum-ciphers"],
-    "web-enum": ["-sV", "-p", "80,443,8080,8443", "--script",
+    "ssl-ciphers": ["-sV", "--script", "ssl-enum-ciphers"],
+    "web-enum": ["-sV", "--script",
                  "http-title,http-headers,http-enum"],
-    "smb-audit": ["-sV", "-p", "139,445", "--script",
+    "smb-audit": ["-sV", "--script",
                   "smb-os-discovery,smb-protocols,smb-security-mode"],
-    "rdp-audit": ["-sV", "-p", "3389", "--script",
+    "rdp-audit": ["-sV", "--script",
                   "rdp-enum-encryption,rdp-ntlm-info"],
 }
 
@@ -298,7 +298,7 @@ Usage:
 
 Examples:
   python3 scanrunner.py -f targets.txt -sV -A -Pn --min-rate 200 -p-
-  python3 scanrunner.py -i 10.10.10.10 -o results -sS -sV -p 22,80,443
+  python3 scanrunner.py -i 10.10.10.10 -o results -sS -sV
   python3 scanrunner.py -f targets.txt --template smb-audit
 
 All unrecognized arguments are passed directly to Nmap. Use nmap --help for
@@ -323,7 +323,7 @@ Automation options:
 
 OPTION_HELP = {
     "file": "--file FILE\nRead IPs, hostnames, CIDRs, or ranges from FILE. Blank lines, # comments, and duplicates are ignored.\nExample: python3 scanrunner.py -f targets.txt -sV",
-    "ip": "--ip TARGET\nScan one IP address, hostname, or CIDR directly.\nExample: python3 scanrunner.py -i 10.10.10.10 -sV -p 443",
+    "ip": "--ip TARGET\nScan one IP address, hostname, or CIDR directly.\nExample: python3 scanrunner.py -i 10.10.10.10 -sV",
     "output": "--output DIR\nWrite reports, logs, and inventories to DIR. Default: results.\nExample: python3 scanrunner.py -f targets.txt -o client-assessment -sV",
     "exclude": "--exclude TARGET\nExclude one target or CIDR from an Nmap scan. Repeat for multiple exclusions.\nExample: python3 scanrunner.py -f targets.txt --exclude 10.10.10.5 -sV",
     "exclude-file": "--exclude-file FILE\nPass FILE to Nmap as an exclusion list.\nExample: python3 scanrunner.py -f targets.txt --exclude-file excluded.txt -sV",
