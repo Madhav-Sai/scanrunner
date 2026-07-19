@@ -1,35 +1,31 @@
 <div align="center">
 
-<img src="https://readme-typing-svg.demolab.com?font=JetBrains+Mono&weight=700&size=34&pause=1200&color=00BFFF&center=true&vCenter=true&width=1000&height=80&lines=scanrunner;Interactive+Nmap+Automation+Framework;Built+for+VAPT+Engagements" />
+# scanrunner
+
+### Interactive Nmap and NetExec Automation Framework
+
+[![Release](https://img.shields.io/github/v/release/Madhav-Sai/scanrunner?style=for-the-badge&logo=github&color=2563eb)](https://github.com/Madhav-Sai/scanrunner/releases)
+[![Stars](https://img.shields.io/github/stars/Madhav-Sai/scanrunner?style=for-the-badge&logo=github&color=0891b2)](https://github.com/Madhav-Sai/scanrunner/stargazers)
+[![Forks](https://img.shields.io/github/forks/Madhav-Sai/scanrunner?style=for-the-badge&logo=github&color=0284c7)](https://github.com/Madhav-Sai/scanrunner/forks)
+[![Last Commit](https://img.shields.io/github/last-commit/Madhav-Sai/scanrunner?style=for-the-badge&logo=github&color=1d4ed8)](https://github.com/Madhav-Sai/scanrunner/commits/main)
+
+[![Python](https://img.shields.io/badge/Python-3.8%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![Nmap](https://img.shields.io/badge/Nmap-Required-004170?style=for-the-badge)](https://nmap.org/)
+[![NetExec](https://img.shields.io/badge/NetExec-Optional-7c3aed?style=for-the-badge)](https://github.com/Pennyw0rth/NetExec)
+[![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-0ea5e9?style=for-the-badge)](#installation)
+[![Security](https://img.shields.io/badge/Use-Authorized%20Assessments-success?style=for-the-badge)](#security-notice)
 
 <br>
 
-<img src="https://img.shields.io/github/stars/Madhav-Sai/scanrunner?style=for-the-badge&color=0891b2" />
-<img src="https://img.shields.io/github/forks/Madhav-Sai/scanrunner?style=for-the-badge&color=0284c7" />
-<img src="https://img.shields.io/github/license/Madhav-Sai/scanrunner?style=for-the-badge&color=2563eb" />
-<img src="https://img.shields.io/github/last-commit/Madhav-Sai/scanrunner?style=for-the-badge&color=1d4ed8" />
-
-<br><br>
-
-<img src="https://img.shields.io/badge/Python-3.8+-3776AB?style=for-the-badge&logo=python&logoColor=white" />
-<img src="https://img.shields.io/badge/Nmap-Required-004170?style=for-the-badge" />
-<img src="https://img.shields.io/badge/Platform-Linux-success?style=for-the-badge&logo=linux" />
-<img src="https://img.shields.io/badge/Status-Active-success?style=for-the-badge" />
-<img src="https://img.shields.io/badge/Security-VAPT-0ea5e9?style=for-the-badge" />
-
-<br><br>
-
 ```text
-   _____                  ____                            
+   _____                  ____
   / ___/________ _____   / __ \__  ______  ____  ___  _____
   \__ \/ ___/ __ `/ __ \ / /_/ / / / / __ \/ __ \/ _ \/ ___/
- ___/ / /__/ /_/ / / / // _, _/ /_/ / / / / / / /  __/ /    
-/____/\___/\__,_/_/ /_//_/ |_|\__,_/_/ /_/_/ /_/\___/_/     
+ ___/ / /__/ /_/ / / / // _, _/ /_/ / / / / / / /  __/ /
+/____/\___/\__,_/_/ /_//_/ |_|\__,_/_/ /_/_/ /_/\___/_/
 ```
 
-### Interactive Nmap Automation Framework
-
-*Automate • Resume • Track • Enumerate*
+**Automate • Resume • Track • Enumerate**
 
 </div>
 
@@ -244,7 +240,7 @@ brew install nmap
 ```text
 Python 3.8+
 Nmap
-Linux
+Linux, macOS, or Windows
 ```
 
 Verify installation:
@@ -494,8 +490,7 @@ python3 scanrunner.py -f targets.txt -sV -A -Pn --min-rate 200 -p-
 ### Non-interactive and Parallel Scans
 
 Use `--yes` for automation. Pair it with `--parallel` for bounded concurrent
-scans and `--retries` for transient failures. Parallel mode intentionally has
-no keyboard controls or live per-process output.
+scans and `--retries` for transient failures. Parallel mode has no interactive keyboard controls, but it displays live target-prefixed worker output.
 
 ```bash
 python3 scanrunner.py -f targets.txt -o results --yes --parallel 4 --retries 1 -sV
@@ -641,14 +636,10 @@ python3 scanrunner.py -i 192.168.1.50 -o results -Pn -sV
 ## Roadmap
 
 ```text
-[ ] Parallel Scanning
-[ ] HTML Reporting
-[ ] XML Parsing
-[ ] CSV Export
-[ ] Asset Inventory
-[ ] Dashboard Integration
-[ ] Scheduling
-[ ] Notification Support
+[ ] Dashboard integration
+[ ] Scheduled scan profiles
+[ ] Notification integrations
+[ ] Additional report formats
 ```
 
 ---
@@ -656,11 +647,9 @@ python3 scanrunner.py -i 192.168.1.50 -o results -Pn -sV
 ## Known Limitations
 
 ```text
-• Sequential Scanning
-• Linux Focused
-• No Native XML Parsing
-• No Built-in Parallel Execution
-• Requires Local Nmap Installation
+• Requires a local Nmap installation
+• NetExec functionality requires NetExec to be installed
+• Interactive keyboard controls are unavailable during parallel scans
 ```
 
 ---
