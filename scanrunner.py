@@ -21,9 +21,13 @@ import threading
 import argparse
 import subprocess
 import tempfile
+import socket
+from urllib.parse import urlsplit
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+
+__version__ = "1.0.0"
 
 SCAN_PROFILES = {
     "quick": ["-sV", "-T4", "--top-ports", "100"],
@@ -395,52 +399,138 @@ def print_all_option_help():
         print()
 
 
+def completion_script(shell):
+    options = "-h --help -v --version -f --file -i --ip --split --profile --template --preset --exclude --exclude-file -nxc --nxc --nxc-query --yes --resume --skip-ping --no-color --scope-file --retries --parallel -o --output --metadata-csv --html-report --help-all --list-templates --completion"
+    profiles = " ".join(sorted(SCAN_PROFILES))
+    protocols = "smb rdp ldap winrm ssh ftp mssql wmi vnc nfs"
+    queries = " ".join(sorted(NXC_QUERY_CHOICES))
+    if shell == "bash":
+        return (
+            "_scanrunner_completion() {\n"
+            "    local cur prev\n"
+            "    COMPREPLY=()\n"
+            "    cur=\"${COMP_WORDS[COMP_CWORD]}\"\n"
+            "    prev=\"${COMP_WORDS[COMP_CWORD-1]}\"\n"
+            "    case \"$prev\" in\n"
+            f"        --profile|--template|--preset) COMPREPLY=( $(compgen -W \"{profiles}\" -- \"$cur\") ); return ;;\n"
+            f"        -nxc|--nxc) COMPREPLY=( $(compgen -W \"{protocols}\" -- \"$cur\") ); return ;;\n"
+            f"        --nxc-query) COMPREPLY=( $(compgen -W \"{queries}\" -- \"$cur\") ); return ;;\n"
+            "        -f|--file|--exclude-file|--scope-file|--metadata-csv) COMPREPLY=( $(compgen -f -- \"$cur\") ); return ;;\n"
+            "        -o|--output) COMPREPLY=( $(compgen -d -- \"$cur\") ); return ;;\n"
+            "    esac\n"
+            f"    COMPREPLY=( $(compgen -W \"{options}\" -- \"$cur\") )\n"
+            "}\n"
+            "complete -F _scanrunner_completion scanrunner\n"
+        )
+    if shell == "zsh":
+        return (
+            "#compdef scanrunner\n"
+            "_scanrunner() {\n"
+            "  local -a profiles protocols queries\n"
+            f"  profiles=({profiles})\n"
+            f"  protocols=({protocols})\n"
+            f"  queries=({queries})\n"
+            "  _arguments -C \\\n"
+            "    '(-h --help){-h,--help}[show help]' \\\n"
+            "    '(-v --version){-v,--version}[show version]' \\\n"
+            "    '(-f --file){-f,--file}[target file]:file:_files' \\\n"
+            "    '(-i --ip){-i,--ip}[IP, hostname, URL, or CIDR]:target:' \\\n"
+            "    '--template[scan template]:template:($profiles)' \\\n"
+            "    '--profile[scan template]:template:($profiles)' \\\n"
+            "    '--preset[scan template]:template:($profiles)' \\\n"
+            "    '(-nxc --nxc){-nxc,--nxc}[NetExec protocol]:protocol:($protocols)' \\\n"
+            "    '--nxc-query[table fields]:query:($queries)' \\\n"
+            "    '(-o --output){-o,--output}[output directory]:directory:_directories' \\\n"
+            "    '*:scanner argument:'\n"
+            "}\n"
+            "_scanrunner \"$@\"\n"
+        )
+    raise ValueError(shell)
+
+
+def _show_native_nxc_help(arguments):
+    """Display protocol-specific NetExec help without creating scan reports."""
+    for flag in ("-nxc", "--nxc"):
+        if flag not in arguments:
+            continue
+        index = arguments.index(flag)
+        if index + 1 >= len(arguments):
+            return False
+        protocol = arguments[index + 1]
+        if protocol in {"-h", "--help"}:
+            return False
+        if not any(token in {"-h", "--help"} for token in arguments[index + 2:]):
+            return False
+        binary = find_nxc_binary()
+        if not binary:
+            print("scanrunner: NetExec (nxc/netexec) was not found in PATH.", file=sys.stderr)
+            raise SystemExit(1)
+        print(f"NetExec {protocol} help (no scan was started)\n")
+        raise SystemExit(subprocess.run([binary, protocol, "-h"], check=False).returncode)
+    return False
+
+
 def handle_topic_help():
-    """Route help to a focused page before argparse requires a target."""
+    """Handle help, version, and completion before target validation."""
     arguments = sys.argv[1:]
     if not arguments or arguments in (["-h"], ["--help"]):
         print(TOP_LEVEL_HELP.strip())
-        sys.exit(0)
+        raise SystemExit(0)
+
+    if arguments in (["-v"], ["--version"]):
+        print(f"scanrunner {__version__}")
+        raise SystemExit(0)
+
+    if len(arguments) == 2 and arguments[0] == "--completion":
+        shell = arguments[1].lower()
+        if shell not in {"bash", "zsh"}:
+            print("scanrunner: --completion supports only bash or zsh", file=sys.stderr)
+            raise SystemExit(2)
+        print(completion_script(shell), end="")
+        raise SystemExit(0)
+
+    _show_native_nxc_help(arguments)
+
     topic_aliases = {
         "nxc": "nxc", "netexec": "nxc", "template": "templates",
         "templates": "templates", "profile": "templates", "preset": "templates",
         "split": "split", "nmap": "nmap", "reports": "reports", "automation": "reports",
     }
-    topic = None
+    option_topics = {
+        "-nxc": "nxc", "--nxc": "nxc", "--split": "split",
+        "--profile": "templates", "--template": "templates", "--preset": "templates",
+        "--nmap": "nmap", "--reports": "reports",
+    }
 
-    if len(arguments) == 2 and arguments[0] in {"-h", "--help"}:
-        topic = topic_aliases.get(arguments[1].lower())
-        option = OPTION_ALIASES.get(arguments[1].lower())
-        if option:
-            print_option_help(option)
-            sys.exit(0)
-    elif len(arguments) == 2 and arguments[1] in {"-h", "--help"}:
-        option_topics = {
-            "-nxc": "nxc", "--nxc": "nxc", "--split": "split",
-            "--profile": "templates", "--template": "templates", "--preset": "templates",
-            "--nmap": "nmap", "--reports": "reports",
-        }
-        topic = option_topics.get(arguments[0])
-        option = OPTION_ALIASES.get(arguments[0])
-        if option:
-            print_option_help(option)
-            sys.exit(0)
-    elif len(arguments) == 2 and arguments[1] == "-vv":
-        if arguments[0] in {"--profile", "--template", "--preset"}:
-            print_template_catalog()
-            sys.exit(0)
-    elif len(arguments) == 1 and arguments[0].startswith("--") and arguments[0].endswith("-help"):
-        topic = topic_aliases.get(arguments[0][2:-5].lower())
-    elif arguments == ["--list-templates"]:
+    if arguments == ["--list-templates"]:
         print_template_catalog()
-        sys.exit(0)
-    elif arguments == ["--help-all"]:
+        raise SystemExit(0)
+    if arguments == ["--help-all"]:
         print_all_option_help()
-        sys.exit(0)
+        raise SystemExit(0)
 
-    if topic:
-        print_topic_help(topic)
-        sys.exit(0)
+    for index, token in enumerate(arguments):
+        if token not in {"-h", "--help"}:
+            continue
+        previous = arguments[index - 1] if index else ""
+        if previous in option_topics:
+            print_topic_help(option_topics[previous])
+            raise SystemExit(0)
+        option = OPTION_ALIASES.get(previous)
+        if option:
+            print_option_help(option)
+            raise SystemExit(0)
+        if index + 1 < len(arguments):
+            topic = topic_aliases.get(arguments[index + 1].lstrip("-").lower())
+            if topic:
+                print_topic_help(topic)
+                raise SystemExit(0)
+        print(TOP_LEVEL_HELP.strip())
+        raise SystemExit(0)
+
+    if len(arguments) == 2 and arguments[1] == "-vv" and arguments[0] in {"--profile", "--template", "--preset"}:
+        print_template_catalog()
+        raise SystemExit(0)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -563,12 +653,82 @@ def parse_args():
     return args
 
 
+def normalize_target(value):
+    """Normalize URLs and host:port values into scanner targets."""
+    target = strip_inline_comment(str(value).strip())
+    if not target:
+        return ""
+
+    if "://" in target:
+        parsed = urlsplit(target)
+        if parsed.hostname:
+            return parsed.hostname
+
+    if target.startswith("[") and "]" in target:
+        return target[1:target.index("]")]
+
+    try:
+        ipaddress.ip_network(target, strict=False)
+        return target
+    except ValueError:
+        pass
+
+    if target.count(":") == 1:
+        host, port = target.rsplit(":", 1)
+        if host and port.isdigit():
+            return host
+
+    return target.rstrip("/")
+
+
+def resolve_scan_target(target, timeout=8):
+    """Resolve a hostname with a bounded timeout; return (scan_target, message)."""
+    normalized = normalize_target(target)
+    try:
+        ipaddress.ip_network(normalized, strict=False)
+        return normalized, ""
+    except ValueError:
+        pass
+
+    result = {}
+    error = {}
+
+    def worker():
+        try:
+            infos = socket.getaddrinfo(normalized, None, type=socket.SOCK_STREAM)
+            addresses = []
+            for info in infos:
+                address = info[4][0]
+                if address not in addresses:
+                    addresses.append(address)
+            if addresses:
+                result["address"] = addresses[0]
+            else:
+                error["message"] = "no address returned"
+        except socket.gaierror as exc:
+            error["message"] = str(exc)
+        except OSError as exc:
+            error["message"] = str(exc)
+
+    thread = threading.Thread(target=worker, daemon=True)
+    thread.start()
+    thread.join(timeout)
+    if thread.is_alive():
+        return None, f"DNS resolution timed out after {timeout}s for {normalized}"
+    if "address" not in result:
+        return None, f"DNS resolution failed for {normalized}: {error.get('message', 'unknown error')}"
+    return result["address"], f"{normalized} resolved to {result['address']}"
+
+
 def load_targets(path):
-    """Load unique targets, ignoring blank lines and comments."""
+    """Load normalized unique targets, ignoring blanks and comments."""
     try:
         with open(path, encoding="utf-8") as file:
-            raw_targets = [target for line in file
-                           if (target := strip_inline_comment(line))]
+            raw_targets = []
+            for line in file:
+                target = normalize_target(line)
+                if target:
+                    raw_targets.append(target)
     except OSError as error:
         print(c(C.RED + C.BOLD, f"  [!] Cannot read target file: {error}"))
         sys.exit(1)
