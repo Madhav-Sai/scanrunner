@@ -20,6 +20,7 @@ import queue
 import threading
 import argparse
 import subprocess
+import tempfile
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -45,18 +46,37 @@ NXC_QUERY_CHOICES = {
 }
 
 HELP_BANNER = r"""
-   _____                      _
-  / ____|                    | |
- | (___   ___ __ _ _ __  _ __ | |_   _ _ __  _ __   ___ _ __
-  \___ \ / __/ _` | '_ \| '_ \| | | | | '_ \| '_ \ / _ \ '__|
-  ____) | (_| (_| | | | | | | | | |_| | | | | | | |  __/ |
- |_____/ \___\__,_|_| |_|_| |_|_|\__,_|_| |_|_| |_|\___|_|
+   _____                  ____
+  / ___/________ _____   / __ \__  ______  ____  ___  _____
+  \__ \/ ___/ __ `/ __ \ / /_/ / / / / __ \/ __ \/ _ \/ ___/
+ ___/ / /__/ /_/ / / / // _, _/ /_/ / / / / / / /  __/ /
+/____/\___/\__,_/_/ /_//_/ |_|\__,_/_/ /_/_/ /_/\___/_/
 
- +------------------------------------------------------------------+
- | Automated Nmap + NetExec workflow for authorized assessments    |
- | Targets • Templates • NXC tables • Reports • Resume             |
- +------------------------------------------------------------------+
+                     scanrunner
 """
+
+TOP_LEVEL_HELP = HELP_BANNER + r"""
+Automated Nmap and NetExec workflow for authorized assessments.
+
+Usage:
+  scanrunner <target> [mode/options]
+
+Start here:
+  scanrunner -f targets.txt -sV               Run Nmap with raw arguments
+  scanrunner -i 10.10.10.10 --template quick  Run an Nmap template
+  scanrunner -f targets.txt -nxc smb           Run NetExec SMB mode
+  scanrunner -f targets.txt --split 3          Split a target file
+
+Focused help:
+  scanrunner --nmap -h       Nmap workflow and options
+  scanrunner --template -h   Nmap templates
+  scanrunner -nxc -h         NetExec mode, queries, and examples
+  scanrunner --split -h      Target splitting
+  scanrunner --reports -h    Output and reporting
+
+Use `scanrunner --help-all` only when you need the complete reference.
+"""
+
 
 
 class ScanrunnerHelpFormatter(argparse.RawTextHelpFormatter):
@@ -90,16 +110,9 @@ def sep(color=C.DIM, char="─", width=70):
     print(c(color, char * width))
 
 def banner():
-    art = r"""
-  _   _ __  __    _    ____
- | \ | |  \/  |  / \  |  _ \
- |  \| | |\/| | / _ \ | |_) |
- | |\  | |  | |/ ___ \|  __/
- |_| \_|_|  |_/_/   \_\_|    SCANNER
-                               by madhav
-"""
-    print(c(C.CYAN    + C.BOLD, art))
-    print(c(C.DIM, "  Automated Nmap wrapper — resume • stream • skip • color\n"))
+    print(c(C.CYAN + C.BOLD, HELP_BANNER.rstrip()))
+    print(c(C.DIM, "  Nmap • NetExec • Resume • Reports\n"))
+
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -153,11 +166,18 @@ def check_nmap_installed():
         print(c(C.RED + C.BOLD, "\n  [!] nmap not found in PATH. Install nmap first."))
         sys.exit(1)
 
+def find_nxc_binary():
+    """Return the available NetExec launcher name."""
+    return shutil.which("nxc") or shutil.which("netexec")
+
+
 def check_nxc_installed():
-    if shutil.which("nxc") is None:
+    binary = find_nxc_binary()
+    if binary is None:
         print(c(C.RED + C.BOLD,
-                "\n  [!] NetExec (nxc) not found in PATH. Install NetExec first."))
+                "\n  [!] NetExec not found. Expected `nxc` or `netexec` in PATH."))
         sys.exit(1)
+    return binary
 
 def safe_input(prompt):
     try:
@@ -242,13 +262,13 @@ HELP_TOPICS = {
     "nxc": """NetExec (NXC) help
 
 Usage:
-  python3 scanrunner.py -f targets.txt -nxc <protocol> [NXC options]
-  python3 scanrunner.py -i 10.10.10.10 -nxc <protocol> [NXC options]
+  scanrunner -f targets.txt -nxc <protocol> [NXC options]
+  scanrunner -i 10.10.10.10 -nxc <protocol> [NXC options]
 
 Examples:
-  python3 scanrunner.py -f targets.txt -nxc smb --nxc-query os,hostname,smbv1
-  python3 scanrunner.py -f targets.txt -nxc smb --nxc-query null-auth
-  python3 scanrunner.py -f targets.txt -nxc rdp --nxc-query rdp-nla
+  scanrunner -f targets.txt -nxc smb --nxc-query os,hostname,smbv1
+  scanrunner -f targets.txt -nxc smb --nxc-query null-auth
+  scanrunner -f targets.txt -nxc rdp --nxc-query rdp-nla
 
 scanrunner passes all remaining options to NetExec and saves raw output, CSV,
 and JSON tables. For protocol-specific NetExec options, run: nxc <protocol> --help
@@ -257,7 +277,7 @@ Focused table fields: os, hostname, smbv1, smb-signing, null-auth, rdp-nla, all.
     "templates": """Nmap templates help
 
 Usage:
-  python3 scanrunner.py -f targets.txt --template <name> [extra Nmap arguments]
+  scanrunner -f targets.txt --template <name> [extra Nmap arguments]
 
 Aliases:
   --profile, --template, and --preset are equivalent.
@@ -269,22 +289,22 @@ Templates:
 Run --list-templates or --template -vv to view the exact arguments in each template.
 
 Examples:
-  python3 scanrunner.py -f targets.txt --template ssl-ciphers
-  python3 scanrunner.py -f targets.txt --preset full-fast --host-timeout 10m
+  scanrunner -f targets.txt --template ssl-ciphers
+  scanrunner -f targets.txt --preset full-fast --host-timeout 10m
 
 Templates are optional. You can always use raw Nmap arguments instead:
-  python3 scanrunner.py -f targets.txt -sV -A -Pn --min-rate 200 -p-
+  scanrunner -f targets.txt -sV -A -Pn --min-rate 200 -p-
 
 Nmap verbosity is passed through normally:
-  python3 scanrunner.py -f targets.txt --template full-fast -vv
+  scanrunner -f targets.txt --template full-fast -vv
 """,
     "split": """Target splitting help
 
 Usage:
-  python3 scanrunner.py -f targets.txt --split <number-of-files>
+  scanrunner -f targets.txt --split <number-of-files>
 
 Example:
-  python3 scanrunner.py -f targets.txt --split 3
+  scanrunner -f targets.txt --split 3
 
 Creates balanced files such as targets_part_1.txt beside the source file.
 The source is never modified. Blank lines, comments, and duplicate targets are
@@ -294,12 +314,12 @@ of usable unique targets.
     "nmap": """Nmap scan help
 
 Usage:
-  python3 scanrunner.py (-f targets.txt | -i target) [scanrunner options] [Nmap arguments]
+  scanrunner (-f targets.txt | -i target) [scanrunner options] [Nmap arguments]
 
 Examples:
-  python3 scanrunner.py -f targets.txt -sV -A -Pn --min-rate 200 -p-
-  python3 scanrunner.py -i 10.10.10.10 -o results -sS -sV
-  python3 scanrunner.py -f targets.txt --template smb-audit
+  scanrunner -f targets.txt -sV -A -Pn --min-rate 200 -p-
+  scanrunner -i 10.10.10.10 -o results -sS -sV
+  scanrunner -f targets.txt --template smb-audit
 
 All unrecognized arguments are passed directly to Nmap. Use nmap --help for
 the complete current list of Nmap flags and NSE scripts. Use -v or -vv for
@@ -322,21 +342,21 @@ Automation options:
 }
 
 OPTION_HELP = {
-    "file": "--file FILE\nRead IPs, hostnames, CIDRs, or ranges from FILE. Blank lines, # comments, and duplicates are ignored.\nExample: python3 scanrunner.py -f targets.txt -sV",
-    "ip": "--ip TARGET\nScan one IP address, hostname, or CIDR directly.\nExample: python3 scanrunner.py -i 10.10.10.10 -sV",
-    "output": "--output DIR\nWrite reports, logs, and inventories to DIR. Default: results.\nExample: python3 scanrunner.py -f targets.txt -o client-assessment -sV",
-    "exclude": "--exclude TARGET\nExclude one target or CIDR from an Nmap scan. Repeat for multiple exclusions.\nExample: python3 scanrunner.py -f targets.txt --exclude 10.10.10.5 -sV",
-    "exclude-file": "--exclude-file FILE\nPass FILE to Nmap as an exclusion list.\nExample: python3 scanrunner.py -f targets.txt --exclude-file excluded.txt -sV",
-    "nxc-query": "--nxc-query QUERY\nChoose NXC table fields: os, hostname, smbv1, smb-signing, null-auth, rdp-nla, all.\nExample: python3 scanrunner.py -f targets.txt -nxc smb --nxc-query os,hostname,smbv1",
-    "yes": "--yes\nRun non-interactively. Complete reports are skipped and incomplete reports are rescanned.\nExample: python3 scanrunner.py -f targets.txt --yes --parallel 4 -sV",
-    "resume": "--resume\nSkip targets with completed reports already in the output directory.\nExample: python3 scanrunner.py -f targets.txt --resume -sV",
-    "skip-ping": "--skip-ping\nSkip scanrunner's ping check. Nmap host discovery still runs unless you pass -Pn.\nExample: python3 scanrunner.py -f targets.txt --skip-ping -sV",
-    "no-color": "--no-color\nDisable terminal colors for CI logs or redirected output.\nExample: python3 scanrunner.py -f targets.txt --no-color -sV",
-    "scope-file": "--scope-file FILE\nAllowlist authorized hosts/CIDRs; targets outside it are refused.\nExample: python3 scanrunner.py -f targets.txt --scope-file authorized.txt -sV",
-    "retries": "--retries N\nRetry failed Nmap scans up to N additional times. Default: 0.\nExample: python3 scanrunner.py -f targets.txt --retries 2 -sV",
-    "parallel": "--parallel N\nRun up to N Nmap scans concurrently. Requires --yes.\nExample: python3 scanrunner.py -f targets.txt --yes --parallel 4 -sV",
-    "metadata-csv": "--metadata-csv FILE\nAdd owner/environment data to the CSV/JSON inventory; FILE needs a target column.\nExample: python3 scanrunner.py -f targets.txt --metadata-csv assets.csv -sV",
-    "html-report": "--html-report\nCreate open-ports-report.html in the output directory.\nExample: python3 scanrunner.py -f targets.txt --html-report -sV",
+    "file": "--file FILE\nRead IPs, hostnames, CIDRs, or ranges from FILE. Blank lines, # comments, and duplicates are ignored.\nExample: scanrunner -f targets.txt -sV",
+    "ip": "--ip TARGET\nScan one IP address, hostname, or CIDR directly.\nExample: scanrunner -i 10.10.10.10 -sV",
+    "output": "--output DIR\nWrite reports, logs, and inventories to DIR. Default: results.\nExample: scanrunner -f targets.txt -o client-assessment -sV",
+    "exclude": "--exclude TARGET\nExclude one target or CIDR from an Nmap scan. Repeat for multiple exclusions.\nExample: scanrunner -f targets.txt --exclude 10.10.10.5 -sV",
+    "exclude-file": "--exclude-file FILE\nPass FILE to Nmap as an exclusion list.\nExample: scanrunner -f targets.txt --exclude-file excluded.txt -sV",
+    "nxc-query": "--nxc-query QUERY\nChoose NXC table fields: os, hostname, smbv1, smb-signing, null-auth, rdp-nla, all.\nExample: scanrunner -f targets.txt -nxc smb --nxc-query os,hostname,smbv1",
+    "yes": "--yes\nRun non-interactively. Complete reports are skipped and incomplete reports are rescanned.\nExample: scanrunner -f targets.txt --yes --parallel 4 -sV",
+    "resume": "--resume\nSkip targets with completed reports already in the output directory.\nExample: scanrunner -f targets.txt --resume -sV",
+    "skip-ping": "--skip-ping\nSkip scanrunner's ping check. Nmap host discovery still runs unless you pass -Pn.\nExample: scanrunner -f targets.txt --skip-ping -sV",
+    "no-color": "--no-color\nDisable terminal colors for CI logs or redirected output.\nExample: scanrunner -f targets.txt --no-color -sV",
+    "scope-file": "--scope-file FILE\nAllowlist authorized hosts/CIDRs; targets outside it are refused.\nExample: scanrunner -f targets.txt --scope-file authorized.txt -sV",
+    "retries": "--retries N\nRetry failed Nmap scans up to N additional times. Default: 0.\nExample: scanrunner -f targets.txt --retries 2 -sV",
+    "parallel": "--parallel N\nRun up to N Nmap scans concurrently. Requires --yes.\nExample: scanrunner -f targets.txt --yes --parallel 4 -sV",
+    "metadata-csv": "--metadata-csv FILE\nAdd owner/environment data to the CSV/JSON inventory; FILE needs a target column.\nExample: scanrunner -f targets.txt --metadata-csv assets.csv -sV",
+    "html-report": "--html-report\nCreate open-ports-report.html in the output directory.\nExample: scanrunner -f targets.txt --html-report -sV",
 }
 
 OPTION_ALIASES = {
@@ -376,8 +396,11 @@ def print_all_option_help():
 
 
 def handle_topic_help():
-    """Handle topic help before argparse requires a target source."""
+    """Route help to a focused page before argparse requires a target."""
     arguments = sys.argv[1:]
+    if not arguments or arguments in (["-h"], ["--help"]):
+        print(TOP_LEVEL_HELP.strip())
+        sys.exit(0)
     topic_aliases = {
         "nxc": "nxc", "netexec": "nxc", "template": "templates",
         "templates": "templates", "profile": "templates", "preset": "templates",
@@ -427,19 +450,10 @@ def handle_topic_help():
 def parse_args():
     handle_topic_help()
     parser = argparse.ArgumentParser(
-        prog="scanrunner.py",
-        description=HELP_BANNER,
+        prog="scanrunner",
+        add_help=False,
         formatter_class=ScanrunnerHelpFormatter,
-        epilog=(
-            "Examples:\n"
-            "  python3 scanrunner.py -f alive.txt -o results -sV -A -vv\n"
-            "  python3 scanrunner.py -i 10.0.0.0/24 -o scans -sS -T4 -p-\n"
-            "  python3 scanrunner.py -i 192.168.1.5 -o out --script vuln -sV\n"
-            "  sudo python3 scanrunner.py -f ips.txt -o results -sS -O -T4\n"
-            "\nTopic help: --help nxc | --help templates | --help split | --help nmap | --help reports\n"
-            "Option help: --parallel -h | --help output | --help-all\n"
-            "Shortcut: -nxc -h | --template -h | --split -h | --list-templates\n"
-        )
+        usage="scanrunner (-f FILE | -i TARGET) [mode/options] [scanner arguments]",
     )
     target_group = parser.add_argument_group("Target input (choose one)")
     src = target_group.add_mutually_exclusive_group(required=True)
@@ -491,9 +505,6 @@ def parse_args():
     report_group.add_argument("--html-report", action="store_true",
                         help="Create an HTML open-port report")
 
-    if not sys.argv[1:]:
-        parser.print_help()
-        parser.exit(0)
 
     args, nmap_extra = parser.parse_known_args()
     # Keep the raw token list — do NOT join then re-split.
@@ -693,32 +704,52 @@ def uses_anonymous_nxc_credentials(options):
     return values.get("username") == "" and values.get("password") == ""
 
 
-def run_nxc(protocol, target_source, targets, nxc_extra, queries, output_dir):
-    """Run NetExec once, preserving arbitrary protocol options supplied by the user."""
+def run_nxc(binary, protocol, target_source, targets, nxc_extra, queries, output_dir):
+    """Run NetExec with live output, then build table exports."""
     if queries and protocol.lower() not in {"smb", "rdp"}:
         print(c(C.YELLOW,
-                "  [!] Focused queries are parsed from SMB/RDP output; showing available fields only."))
+                "  [!] Focused queries are currently parsed only from SMB/RDP output."))
+
     effective_extra = list(nxc_extra)
     if "null-auth" in queries and not any(option in effective_extra
                                            for option in ("-u", "--username", "-p", "--password")):
         effective_extra.extend(["-u", "", "-p", ""])
-    command = ["nxc", protocol, target_source, *effective_extra]
+
+    command = [binary, protocol, target_source, *effective_extra]
     print(c(C.DIM, "  Command : " + " ".join(redact_command(command))))
+    print(c(C.DIM, "─" * 70))
+
     try:
-        result = subprocess.run(command, stdin=subprocess.DEVNULL, text=True,
-                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                check=False)
+        process = subprocess.Popen(
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
     except FileNotFoundError:
-        print(c(C.RED, "  [!] NetExec (nxc) binary not found."))
+        print(c(C.RED, f"  [!] NetExec binary not found: {binary}"))
         return False
+
+    captured = []
+    assert process.stdout is not None
+    for line in process.stdout:
+        captured.append(line)
+        print(line, end="")
+    process.wait()
+    output = "".join(captured)
 
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     raw_path = os.path.join(output_dir, f"nxc-{sanitize_filename(protocol)}-{timestamp}.txt")
     with open(raw_path, "w", encoding="utf-8") as file:
-        file.write(result.stdout)
+        file.write(output)
 
-    rows = parse_nxc_output(result.stdout, targets,
-                            null_auth_attempt=uses_anonymous_nxc_credentials(effective_extra))
+    print(c(C.DIM, "─" * 70))
+    rows = parse_nxc_output(
+        output, targets,
+        null_auth_attempt=uses_anonymous_nxc_credentials(effective_extra),
+    )
     columns = nxc_table_columns(protocol, queries)
     print_nxc_table(rows, columns)
 
@@ -734,7 +765,10 @@ def run_nxc(protocol, target_source, targets, nxc_extra, queries, output_dir):
 
     print(c(C.GREEN, f"  [+] Saved NXC output: {raw_path}"))
     print(c(C.GREEN, f"  [+] Saved table data: {csv_path}, {json_path}"))
-    return result.returncode == 0
+    if process.returncode != 0:
+        print(c(C.RED, f"  [!] NetExec exited with status {process.returncode}. See raw output above."))
+    return process.returncode == 0
+
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1241,7 +1275,7 @@ def main():
         return
 
     if args.nxc:
-        check_nxc_installed()
+        nxc_binary = check_nxc_installed()
         output_dir = args.output
         os.makedirs(output_dir, exist_ok=True)
         if args.ip:
@@ -1265,8 +1299,24 @@ def main():
         print(c(C.CYAN, f"  NXC protocol : {args.nxc}"))
         print(c(C.CYAN, f"  Targets      : {len(ips)}"))
         print(c(C.CYAN, f"  Output       : {output_dir}"))
-        success = run_nxc(args.nxc, target_source, ips, args.nmap_extra,
-                          args.nxc_queries, output_dir)
+        temporary_target_file = None
+        if args.file:
+            # NetExec should receive exactly the same cleaned targets scanrunner validated.
+            temporary_target_file = tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", prefix="scanrunner-nxc-", suffix=".txt", delete=False
+            )
+            temporary_target_file.write("\n".join(ips) + "\n")
+            temporary_target_file.close()
+            target_source = temporary_target_file.name
+        try:
+            success = run_nxc(nxc_binary, args.nxc, target_source, ips, args.nmap_extra,
+                              args.nxc_queries, output_dir)
+        finally:
+            if temporary_target_file:
+                try:
+                    os.unlink(temporary_target_file.name)
+                except OSError:
+                    pass
         sys.exit(0 if success else 1)
 
     check_nmap_installed()
