@@ -27,7 +27,7 @@ NXC_QUERIES = ["os", "hostname", "smbv1", "smb-signing", "null-auth", "rdp-nla",
 OPTIONS = [
     "-h", "--help", "-f", "--file", "-i", "--ip", "--split", "--profile",
     "--template", "--preset", "--exclude", "--exclude-file", "-nxc", "--nxc",
-    "--nxc-query", "--yes", "--resume", "--skip-ping", "--no-color",a
+    "--nxc-query", "--yes", "--resume", "--skip-ping", "--no-color",
     "--scope-file", "--retries", "--parallel", "-o", "--output",
     "--metadata-csv", "--html-report", "--list-templates", "--help-all",
     "--nmap", "--reports",
