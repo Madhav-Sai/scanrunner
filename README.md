@@ -142,37 +142,102 @@ scanrunner solves these problems through automation.
 
 ## Installation
 
-### Clone Repository
+### Clone and install
 
 ```bash
 git clone https://github.com/Madhav-Sai/scanrunner.git
-
 cd scanrunner
+python3 install.py
 ```
 
-### Install Dependencies
+The installer automatically detects Linux, macOS, or Windows and then:
+
+- installs the `scanrunner` command
+- detects Zsh, Bash, Fish, or PowerShell
+- installs shell tab completion
+- checks whether Nmap and NetExec are available
+- avoids duplicate shell configuration entries when run again
+
+Verify the installation:
+
+```bash
+scanrunner -h
+```
+
+### Linux and macOS
+
+The default installation creates an absolute system-wide launcher:
+
+```text
+/usr/local/bin/scanrunner -> /absolute/path/to/scanrunner.py
+```
+
+Administrator permission is requested only when `/usr/local/bin` is not
+writable. For a user-only installation:
+
+```bash
+python3 install.py --user
+```
+
+This installs the launcher under `~/.local/bin`. Ensure that directory is in
+`PATH`.
+
+Force a specific completion shell when automatic detection is not suitable:
+
+```bash
+python3 install.py --shell zsh
+python3 install.py --shell bash
+python3 install.py --shell fish
+```
+
+After installation, reload the current shell:
+
+```bash
+exec zsh
+# or
+exec bash
+```
+
+### Windows
+
+Run from PowerShell or Command Prompt:
+
+```powershell
+py install.py
+```
+
+The installer creates a user-level `scanrunner.cmd` launcher, adds its scripts
+directory to the user `PATH`, and installs PowerShell completion. Open a new
+PowerShell window afterward.
+
+### Installation options
+
+```text
+--user              Install under the current user
+--system            Request a system-wide Unix installation
+--shell SHELL       auto, zsh, bash, fish, powershell, or none
+--no-completion     Install without shell completion
+```
+
+### Dependencies
+
+The installer checks dependencies and prints the relevant platform guidance.
+Nmap is required for scanning. NetExec is optional and is only required for
+`-nxc` mode.
 
 #### Debian / Ubuntu / Kali
 
 ```bash
 sudo apt update
-
 sudo apt install nmap
 ```
 
-#### RHEL / CentOS
+#### macOS with Homebrew
 
 ```bash
-sudo yum install nmap
+brew install nmap
 ```
 
-#### Arch Linux
-
-```bash
-sudo pacman -S nmap
-```
-
----
 
 ## Requirements
 
