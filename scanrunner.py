@@ -24,6 +24,8 @@ import tempfile
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+__version__ = "1.2.0"
+
 
 SCAN_PROFILES = {
     "quick": ["-sV", "-T4", "--top-ports", "100"],
@@ -73,6 +75,9 @@ Focused help:
   scanrunner -nxc -h         NetExec mode, queries, and examples
   scanrunner --split -h      Target splitting
   scanrunner --reports -h    Output and reporting
+
+Version:
+  scanrunner -v | --version
 
 Use `scanrunner --help-all` only when you need the complete reference.
 """
@@ -396,10 +401,25 @@ def print_all_option_help():
 
 
 def handle_topic_help():
-    """Route help to a focused page before argparse requires a target."""
+    """Route standalone version/help requests before argparse validation."""
     arguments = sys.argv[1:]
+
+    # Standalone version commands must not require a target. Keep ``-v``
+    # available to Nmap whenever a target was supplied.
+    if arguments in (["-v"], ["--version"]):
+        print(f"scanrunner {__version__}")
+        sys.exit(0)
+
     if not arguments or arguments in (["-h"], ["--help"]):
         print(TOP_LEVEL_HELP.strip())
+        sys.exit(0)
+
+    # Any help request associated with NXC belongs to scanrunner's focused
+    # NXC page. Do not forward -h to NetExec and do not start a scan.
+    if any(arg in {"-nxc", "--nxc"} for arg in arguments) and any(
+        arg in {"-h", "--help"} for arg in arguments
+    ):
+        print_topic_help("nxc")
         sys.exit(0)
     topic_aliases = {
         "nxc": "nxc", "netexec": "nxc", "template": "templates",
