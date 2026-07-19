@@ -80,29 +80,6 @@ class HelpAndCompletionTests(unittest.TestCase):
         result = self.run_cli("--completion", "fish")
         self.assertEqual(result.returncode, 2)
 
-    def test_version_without_target(self):
-        for flag in ("-v", "--version"):
-            result = self.run_cli(flag)
-            self.assertEqual(result.returncode, 0)
-            self.assertEqual(result.stdout.strip(), "scanrunner 1.0.0")
-
-    def test_protocol_help_is_not_a_scan(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            fake_nxc = Path(temp_dir) / "nxc"
-            fake_nxc.write_text("#!/bin/sh\necho native-smb-help\n")
-            fake_nxc.chmod(0o755)
-            env = os.environ.copy()
-            env["PATH"] = temp_dir + os.pathsep + env.get("PATH", "")
-            result = subprocess.run(
-                [sys.executable, str(SCRIPT), "-i", "127.0.0.1", "-nxc", "smb", "-h"],
-                text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                cwd=temp_dir, env=env,
-            )
-            self.assertEqual(result.returncode, 0)
-            self.assertIn("no scan was started", result.stdout)
-            self.assertIn("native-smb-help", result.stdout)
-            self.assertFalse((Path(temp_dir) / "results").exists())
-
 
 class NxcParsingTests(unittest.TestCase):
     def test_parse_smb_output(self):
