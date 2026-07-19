@@ -4,26 +4,11 @@
 
 <br>
 
-<img src="https://img.shields.io/badge/Release-v1.2.0-2563eb?style=for-the-badge&logo=github&logoColor=white" alt="Release v1.2.0" />
-<img src="https://img.shields.io/badge/Python-3.8%2B-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.8+" />
-<img src="https://img.shields.io/badge/Nmap-Required-004170?style=for-the-badge" alt="Nmap required" />
-<img src="https://img.shields.io/badge/NetExec-Optional-7c3aed?style=for-the-badge" alt="NetExec optional" />
+<img src="assets/readme/badges.png" alt="scanrunner project badges" />
 
 <br><br>
 
-<img src="https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-0ea5e9?style=for-the-badge" alt="Supported platforms" />
-<img src="https://img.shields.io/badge/Status-Active-16a34a?style=for-the-badge" alt="Active status" />
-<img src="https://img.shields.io/badge/Security-VAPT-0891b2?style=for-the-badge" alt="VAPT security" />
-
-<br><br>
-
-```text
-   _____                  ____
-  / ___/________ _____   / __ \__  ______  ____  ___  _____
-  \__ \/ ___/ __ `/ __ \ / /_/ / / / / __ \/ __ \/ _ \/ ___/
- ___/ / /__/ /_/ / / / // _, _/ /_/ / / / / / / /  __/ /
-/____/\___/\__,_/_/ /_//_/ |_|\__,_/_/ /_/_/ /_/\___/_/
-```
+<img src="assets/readme/ascii-banner.png" alt="scanrunner ASCII banner" />
 
 ### Interactive Nmap and NetExec Automation Framework
 
