@@ -622,3 +622,49 @@ Interactive Nmap Workflow Automation Framework
 Built for Security Professionals
 
 </div>
+
+## Shell Tab Completion
+
+scanrunner can generate and install completion for Zsh and Bash.
+
+### Zsh
+
+```bash
+scanrunner --install-completion zsh
+```
+
+If `~/.zsh/completions` is not already in your completion path, add these lines
+to `~/.zshrc` and restart the shell:
+
+```bash
+fpath=(~/.zsh/completions $fpath)
+autoload -Uz compinit && compinit
+```
+
+Then pressing Tab completes scanrunner options, target files, output directories,
+Nmap templates, NetExec protocols, and NXC query fields.
+
+### Bash
+
+```bash
+scanrunner --install-completion bash
+```
+
+Completion scripts can also be printed without installing them:
+
+```bash
+scanrunner --completion zsh
+scanrunner --completion bash
+```
+
+## Regression Tests
+
+Run the offline test suite:
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+The tests cover nested help, argument validation, target normalization, URL and
+hostname handling, NXC table parsing, quoted Nmap arguments, and completion
+script generation.
