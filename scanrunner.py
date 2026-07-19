@@ -6,6 +6,10 @@ scanrunner.py — Automated Nmap wrapper  by madhav
 import os
 import sys
 import re
+import csv
+import json
+import html
+import ipaddress
 import signal
 import shutil
 import time
@@ -17,6 +21,16 @@ import threading
 import argparse
 import subprocess
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+
+SCAN_PROFILES = {
+    "quick": ["-sV", "-T4", "--top-ports", "100"],
+    "full": ["-sS", "-sV", "-O", "-T4", "-p-"],
+    "web": ["-sV", "-p", "80,443,8080,8443", "--script", "http-title,http-headers"],
+    "udp": ["-sU", "-sV", "--top-ports", "100"],
+    "vuln": ["-sV", "--script", "vuln"],
+}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -36,8 +50,10 @@ class C:
     WHITE   = "\033[97m"
     ORANGE  = "\033[38;5;214m"
 
+COLORS_ENABLED = True
+
 def c(color, text):
-    return f"{color}{text}{C.RESET}"
+    return f"{color}{text}{C.RESET}" if COLORS_ENABLED else text
 
 def sep(color=C.DIM, char="─", width=70):
     print(c(color, char * width))
@@ -122,6 +138,52 @@ def strip_inline_comment(line):
     """
     return line.split("#")[0].strip()
 
+def has_nmap_option(nmap_extra, option):
+    """Return whether an option is present, including --option=value form."""
+    return any(token == option or token.startswith(f"{option}=")
+               for token in nmap_extra)
+
+def is_network_target(target):
+    """Return whether target is a CIDR range that should be discovered by Nmap."""
+    return "/" in target
+
+def load_metadata(path):
+    if not path:
+        return {}
+    try:
+        with open(path, newline="", encoding="utf-8") as file:
+            reader = csv.DictReader(file)
+            if not reader.fieldnames or "target" not in reader.fieldnames:
+                raise ValueError("CSV must include a target column")
+            return {row["target"].strip(): row for row in reader if row.get("target", "").strip()}
+    except (OSError, ValueError, csv.Error) as error:
+        print(c(C.RED + C.BOLD, f"  [!] Invalid metadata CSV: {error}"))
+        sys.exit(1)
+
+def load_scope(path):
+    if not path:
+        return []
+    try:
+        with open(path, encoding="utf-8") as file:
+            return [cleaned for line in file if (cleaned := strip_inline_comment(line))]
+    except OSError as error:
+        print(c(C.RED + C.BOLD, f"  [!] Cannot read scope file: {error}"))
+        sys.exit(1)
+
+def target_in_scope(target, scope):
+    if not scope or target in scope:
+        return True
+    try:
+        if "/" in target:
+            network = ipaddress.ip_network(target, strict=False)
+            return any(network.subnet_of(ipaddress.ip_network(item, strict=False))
+                       for item in scope if "/" in item)
+        address = ipaddress.ip_address(target)
+        return any(address in ipaddress.ip_network(item, strict=False)
+                   for item in scope if "/" in item)
+    except ValueError:
+        return False
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  ARGUMENT PARSING
@@ -147,11 +209,45 @@ def parse_args():
                      help="Single IP or CIDR subnet  (e.g. 10.0.0.0/24)")
     parser.add_argument("-o", "--output", metavar="DIR", default="results",
                         help="Output folder  (default: results)")
+    parser.add_argument("--profile", choices=sorted(SCAN_PROFILES),
+                        help="Apply a built-in Nmap scan profile")
+    parser.add_argument("--yes", action="store_true",
+                        help="Run non-interactively; rescan incomplete reports")
+    parser.add_argument("--resume", action="store_true",
+                        help="Skip targets with completed reports without prompting")
+    parser.add_argument("--skip-ping", action="store_true",
+                        help="Skip wrapper ping checks; Nmap still performs discovery")
+    parser.add_argument("--no-color", action="store_true",
+                        help="Disable ANSI color output")
+    parser.add_argument("--exclude", action="append", default=[], metavar="TARGET",
+                        help="Exclude target or CIDR (repeatable)")
+    parser.add_argument("--exclude-file", metavar="FILE",
+                        help="File containing Nmap exclusions")
+    parser.add_argument("--scope-file", metavar="FILE",
+                        help="Allowlist file; refuse targets outside this scope")
+    parser.add_argument("--retries", type=int, default=0, metavar="N",
+                        help="Retry failed scans up to N times")
+    parser.add_argument("--metadata-csv", metavar="FILE",
+                        help="CSV with target,owner,environment columns")
+    parser.add_argument("--parallel", type=int, default=1, metavar="N",
+                        help="Run up to N non-interactive scans concurrently")
+    parser.add_argument("--html-report", action="store_true",
+                        help="Create an HTML open-port report")
 
     args, nmap_extra = parser.parse_known_args()
     # Keep the raw token list — do NOT join then re-split.
     # Joining then shlex.split-ing loses spaces inside quoted args
     # e.g. --script-args "user=admin pass=hi" becomes two broken tokens.
+    if args.retries < 0 or args.parallel < 1:
+        parser.error("--retries must be zero or greater and --parallel must be at least 1")
+    if args.parallel > 1 and not args.yes:
+        parser.error("--parallel requires --yes because interactive controls are unavailable")
+    if args.profile:
+        nmap_extra = SCAN_PROFILES[args.profile] + nmap_extra
+    if args.exclude:
+        nmap_extra.extend(["--exclude", ",".join(args.exclude)])
+    if args.exclude_file:
+        nmap_extra.extend(["--excludefile", args.exclude_file])
     args.nmap_extra = nmap_extra   # list of strings, used directly in _build_nmap_command
     args.nmap_args  = " ".join(nmap_extra)   # human-readable display only
     return args
@@ -263,16 +359,17 @@ def _build_nmap_command(target, output_file, nmap_extra, use_pn=False):
     cmd = ["nmap"]
 
     # Show Nmap progress every 15 seconds
-    if "--stats-every" not in nmap_extra:
+    if not has_nmap_option(nmap_extra, "--stats-every"):
         cmd.extend(["--stats-every", "15s"])
 
-    if use_pn:
+    if use_pn and not has_nmap_option(nmap_extra, "-Pn"):
         cmd.append("-Pn")
 
     if nmap_extra:
         cmd.extend(nmap_extra)
 
-    cmd.extend(["-oN", output_file, "--", target])
+    xml_file = f"{os.path.splitext(output_file)[0]}.xml"
+    cmd.extend(["-oN", output_file, "-oX", xml_file, "--", target])
 
     return cmd
    
@@ -517,6 +614,21 @@ def run_nmap_scan(target, output_file, nmap_extra, use_pn=False):
     return proc.returncode == 0
 
 
+def run_nmap_quiet(target, output_file, nmap_extra, use_pn, retries):
+    """Run a non-interactive scan, returning success and attempts used."""
+    for attempt in range(retries + 1):
+        result = subprocess.run(
+            _build_nmap_command(target, output_file, nmap_extra, use_pn),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        if result.returncode == 0 and os.path.exists(output_file):
+            return True, attempt + 1
+    return False, retries + 1
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #  OPEN PORTS ONE-LINER  (shown after each completed scan)
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -529,6 +641,45 @@ def print_open_ports_oneliner(ip, filepath):
     else:
         print(c(C.DIM, "  No open ports found."))
     return ports
+
+
+def write_inventory(output_dir, targets, metadata, write_html):
+    """Write machine-readable port inventory files from completed normal output."""
+    rows = []
+    for target in targets:
+        details = metadata.get(target, {})
+        report = os.path.join(output_dir, f"{sanitize_filename(target)}.txt")
+        for port in parse_open_ports(report):
+            rows.append({
+                "target": target,
+                "owner": details.get("owner", ""),
+                "environment": details.get("environment", ""),
+                "port_service": port,
+            })
+
+    csv_path = os.path.join(output_dir, "open-ports-inventory.csv")
+    with open(csv_path, "w", newline="", encoding="utf-8") as file:
+        writer = csv.DictWriter(file, fieldnames=["target", "owner", "environment", "port_service"])
+        writer.writeheader()
+        writer.writerows(rows)
+    with open(os.path.join(output_dir, "open-ports-inventory.json"), "w", encoding="utf-8") as file:
+        json.dump(rows, file, indent=2)
+
+    if write_html:
+        body = "\n".join(
+            "<tr>" + "".join(f"<td>{html.escape(row[column])}</td>"
+                              for column in ("target", "owner", "environment", "port_service")) + "</tr>"
+            for row in rows
+        ) or "<tr><td colspan=\"4\">No open ports found.</td></tr>"
+        report = (
+            "<!doctype html><meta charset=\"utf-8\"><title>Scanrunner Inventory</title>"
+            "<style>body{font-family:system-ui;margin:2rem}table{border-collapse:collapse}"
+            "th,td{border:1px solid #ccc;padding:.5rem;text-align:left}</style>"
+            "<h1>Scanrunner Open-Port Inventory</h1><table><tr><th>Target</th><th>Owner</th>"
+            f"<th>Environment</th><th>Port / Service</th></tr>{body}</table>"
+        )
+        with open(os.path.join(output_dir, "open-ports-report.html"), "w", encoding="utf-8") as file:
+            file.write(report)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -587,10 +738,11 @@ def print_summary(completed_file, skipped_file, rescanned_file,
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def main():
+    global COLORS_ENABLED
     _save_terminal()
-    banner()
-
     args = parse_args()
+    COLORS_ENABLED = not args.no_color
+    banner()
     check_nmap_installed()
 
     output_dir = args.output
@@ -621,12 +773,20 @@ def main():
                 ips.append(ip)
         print(c(C.CYAN, f"  File     : {args.file}  ({len(ips)} unique targets)"))
 
+    metadata = load_metadata(args.metadata_csv)
+    scope = load_scope(args.scope_file)
+    out_of_scope = [ip for ip in ips if not target_in_scope(ip, scope)]
+    if out_of_scope:
+        print(c(C.RED + C.BOLD,
+                "  [!] Refusing targets outside --scope-file: " + ", ".join(out_of_scope)))
+        sys.exit(1)
+
     print(c(C.CYAN, f"  Output   : {output_dir}"))
 
     # ── --host-timeout warning ────────────────────────────────────────────────
     if args.nmap_args:
         print(c(C.CYAN, f"  Nmap args: {args.nmap_args}"))
-    if "--host-timeout" not in args.nmap_extra:
+    if not has_nmap_option(args.nmap_extra, "--host-timeout"):
         print(c(C.YELLOW,
                 "  [!] No --host-timeout set. A hung host will block forever.\n"
                 "      Consider adding: --host-timeout 10m"))
@@ -638,34 +798,81 @@ def main():
     rescanned_file = os.path.join(output_dir, "rescanned.txt")
     not_ping_file  = os.path.join(output_dir, "not-pingip.txt")
     failed_file    = os.path.join(output_dir, "failed.txt")
+    retry_file     = os.path.join(output_dir, "retried.txt")
+
+    def write_reports():
+        write_inventory(output_dir, ips, metadata, args.html_report)
 
     # ── Resume — single prompt ────────────────────────────────────────────────
     completed_ips = set()
-    if os.path.exists(completed_file):
-        with open(completed_file) as f:
-            all_done = {line.split("|")[-1].strip() for line in f if line.strip()}
+    if os.path.exists(completed_file) or args.resume:
+        all_done = set()
+        if os.path.exists(completed_file):
+            with open(completed_file) as f:
+                all_done = {line.split("|")[-1].strip() for line in f if line.strip()}
+        all_done.update(ip for ip in ips
+                        if get_file_status(os.path.join(output_dir, f"{sanitize_filename(ip)}.txt")) == "COMPLETE")
         if all_done:
             print(c(C.BLUE + C.BOLD, f"  Found {len(all_done)} previously completed IP(s)."))
-            ch = safe_input(
-                c(C.CYAN, "  [r] Resume (skip completed)  [f] Fresh (review all)  -> ")
-            ).lower()
-            if ch == "r":
+            if args.resume:
                 completed_ips = all_done
                 print(c(C.GREEN,
                         f"  [+] Resuming — {len(completed_ips)} IP(s) will be skipped.\n"))
             else:
-                print(c(C.YELLOW, "  [+] Fresh run — all IPs will be reviewed.\n"))
+                ch = safe_input(
+                    c(C.CYAN, "  [r] Resume (skip completed)  [f] Fresh (review all)  -> ")
+                ).lower()
+                if ch == "r":
+                    completed_ips = all_done
+                    print(c(C.GREEN,
+                            f"  [+] Resuming — {len(completed_ips)} IP(s) will be skipped.\n"))
+                else:
+                    print(c(C.YELLOW, "  [+] Fresh run — all IPs will be reviewed.\n"))
 
     pending_ips   = [ip for ip in ips if ip not in completed_ips]
     total_pending = len(pending_ips)
 
     if total_pending == 0:
         print(c(C.GREEN, "  [+] All IPs already completed. Nothing to do."))
+        write_reports()
         print_summary(completed_file, skipped_file, rescanned_file,
                       not_ping_file, failed_file, output_dir)
         return
 
     print(c(C.CYAN + C.BOLD, f"  [*] {total_pending} IP(s) queued.\n"))
+
+    nmap_uses_pn = has_nmap_option(args.nmap_extra, "-Pn")
+    if nmap_uses_pn:
+        print(c(C.YELLOW,
+                "  [*] -Pn detected: wrapper ping checks are disabled.\n"))
+
+    if args.parallel > 1:
+        parallel_targets = [ip for ip in pending_ips
+                            if get_file_status(os.path.join(
+                                output_dir, f"{sanitize_filename(ip)}.txt")) != "COMPLETE"]
+        print(c(C.CYAN, f"  [*] Running {len(parallel_targets)} scan(s) with {args.parallel} workers.\n"))
+        with ThreadPoolExecutor(max_workers=args.parallel) as executor:
+            futures = {
+                executor.submit(run_nmap_quiet, ip,
+                                os.path.join(output_dir, f"{sanitize_filename(ip)}.txt"),
+                                args.nmap_extra, nmap_uses_pn, args.retries): ip
+                for ip in parallel_targets
+            }
+            for future in as_completed(futures):
+                ip = futures[future]
+                success, attempts = future.result()
+                if attempts > 1:
+                    log_to_file(retry_file, ip)
+                if success:
+                    log_to_file(completed_file, ip)
+                    print(c(C.GREEN, f"  [+] Completed {ip} ({attempts} attempt(s))"))
+                else:
+                    log_to_file(failed_file, ip)
+                    print(c(C.RED, f"  [x] Failed {ip} after {attempts} attempt(s)"))
+        write_reports()
+        print_summary(completed_file, skipped_file, rescanned_file,
+                      not_ping_file, failed_file, output_dir)
+        return
 
     # ── Scan loop ─────────────────────────────────────────────────────────────
     done_count = 0
@@ -697,9 +904,12 @@ def main():
 
             if os.path.exists(output_file):
                 display_existing_scan(output_file)
-                _show_menu()
                 while True:
-                    ch = safe_input(c(C.BOLD, "  Choice -> ")).lower()
+                    if args.yes:
+                        ch = "s" if get_file_status(output_file) == "COMPLETE" else "r"
+                    else:
+                        _show_menu()
+                        ch = safe_input(c(C.BOLD, "  Choice -> ")).lower()
                     if ch == "s":
                         log_to_file(skipped_file, ip)
                         print(c(C.YELLOW, f"  [~] Skipped {ip}"))
@@ -717,7 +927,6 @@ def main():
                         break
                     elif ch == "v":
                         view_full_report(output_file)
-                        _show_menu()
                     elif ch == "q":
                         print(c(C.RED + C.BOLD, "\n  Quitting."))
                         restore_terminal()
@@ -734,28 +943,42 @@ def main():
                 continue
 
             # ── Ping check ───────────────────────────────────────────────────
-            print(c(C.DIM, f"\n  Pinging {ip} ..."))
-            use_pn = False
+            use_pn = nmap_uses_pn
 
-            if not ping_host(ip):
+            if nmap_uses_pn:
+                print(c(C.DIM, f"\n  Skipping wrapper ping for {ip} (-Pn supplied)."))
+            elif args.skip_ping:
+                print(c(C.DIM, f"\n  Skipping wrapper ping for {ip} (--skip-ping supplied)."))
+            elif is_network_target(ip):
+                print(c(C.DIM,
+                        f"\n  Skipping wrapper ping for CIDR target {ip}; "
+                        "Nmap will perform host discovery."))
+            else:
+                print(c(C.DIM, f"\n  Pinging {ip} ..."))
+
+            if (not nmap_uses_pn and not args.skip_ping and not is_network_target(ip)
+                    and not ping_host(ip)):
                 print(c(C.ORANGE + C.BOLD, f"  [-] {ip} did not respond to ping."))
-                while True:
+                ping_choice = "n" if args.yes else ""
+                while not ping_choice:
                     ping_choice = safe_input(
                         c(C.YELLOW, "  Run nmap with -Pn anyway? [y/n]: ")
                     ).lower()
                     if ping_choice == "y":
                         use_pn = True
-                        break
                     elif ping_choice == "n":
                         log_to_file(not_ping_file, ip)
                         print(c(C.ORANGE, f"  Logged {ip} as no-ping. Skipping."))
-                        break
                     else:
                         print(c(C.RED, "  [!] Enter y or n."))
+                        ping_choice = ""
+                if args.yes:
+                    log_to_file(not_ping_file, ip)
+                    print(c(C.ORANGE, f"  Logged {ip} as no-ping. Skipping."))
                 if ping_choice == "n":
                     done_count += 1
                     continue
-            else:
+            elif not nmap_uses_pn and not args.skip_ping and not is_network_target(ip):
                 print(c(C.GREEN, f"  [+] {ip} is alive."))
 
             # ── Run scan ─────────────────────────────────────────────────────
@@ -767,21 +990,29 @@ def main():
                         "Ctrl+C = exit\n"))
 
             start  = time.time()
-            result = run_nmap_scan(ip, output_file, args.nmap_extra, use_pn)
+            attempt = 0
+            while True:
+                result = run_nmap_scan(ip, output_file, args.nmap_extra, use_pn)
+                if result is not False or attempt >= args.retries:
+                    break
+                attempt += 1
+                log_to_file(retry_file, ip)
+                print(c(C.YELLOW, f"  [~] Retrying {ip} ({attempt}/{args.retries})"))
             elapsed = round(time.time() - start, 2)
 
             if result == "SKIPPED":
                 log_to_file(skipped_file, ip)
 
             elif result is True:
-                print(c(C.GREEN + C.BOLD, f"\n  [+] Completed {ip} in {elapsed}s"))
-                log_to_file(completed_file, ip)
+                print(c(C.GREEN + C.BOLD, f"\n  [+] Nmap finished {ip} in {elapsed}s"))
                 # Wait up to 2s for nmap to flush the file
                 for _ in range(4):
                     if os.path.exists(output_file):
                         break
                     time.sleep(0.5)
                 if os.path.exists(output_file):
+                    log_to_file(completed_file, ip)
+                    print(c(C.GREEN, f"  [+] Saved report for {ip}"))
                     print_open_ports_oneliner(ip, output_file)
                 else:
                     print(c(C.YELLOW,
@@ -800,6 +1031,7 @@ def main():
 
     # Final progress bar — 100% when we get here
     progress_bar(done_count, total_pending)
+    write_reports()
     print_summary(completed_file, skipped_file, rescanned_file,
                   not_ping_file, failed_file, output_dir)
 

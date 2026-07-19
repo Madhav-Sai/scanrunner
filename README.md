@@ -197,7 +197,7 @@ nmap --version
 ### Syntax
 
 ```bash
-python3 scanrunner.py <alive.txt> <output_folder> '<nmap_arguments>'
+python3 scanrunner.py (-f <targets.txt> | -i <target>) [-o <output_folder>] [nmap arguments]
 ```
 
 ### Examples
@@ -205,31 +205,31 @@ python3 scanrunner.py <alive.txt> <output_folder> '<nmap_arguments>'
 #### Service Enumeration
 
 ```bash
-python3 scanrunner.py alive.txt results '-sV -T4'
+python3 scanrunner.py -f alive.txt -o results -sV -T4
 ```
 
 #### Aggressive Assessment
 
 ```bash
-python3 scanrunner.py alive.txt results '-sV -A -vv'
+python3 scanrunner.py -f alive.txt -o results -sV -A -vv
 ```
 
 #### Full Port Scan
 
 ```bash
-python3 scanrunner.py alive.txt results '-sS -p- -T4'
+python3 scanrunner.py -f alive.txt -o results -sS -p- -T4
 ```
 
 #### Vulnerability Discovery
 
 ```bash
-python3 scanrunner.py alive.txt results '--script vuln -sV'
+python3 scanrunner.py -f alive.txt -o results --script vuln -sV
 ```
 
 #### Active Directory Assessment
 
 ```bash
-python3 scanrunner.py dc.txt ad-assessment '-sV -A -T4'
+python3 scanrunner.py -f dc.txt -o ad-assessment -sV -A -T4
 ```
 
 ---
@@ -277,6 +277,7 @@ Available actions:
 ```text
 [s] Skip
 [r] Rescan
+[m] Mark done
 [v] View Full Report
 [q] Quit
 ```
@@ -288,7 +289,7 @@ Available actions:
 Resume interrupted assessments instantly.
 
 ```text
-Resume previous session? [y/n]
+[r] Resume (skip completed)  [f] Fresh (review all)
 ```
 
 Previously completed hosts are automatically excluded.
@@ -310,6 +311,7 @@ Client Engagements
 results/
 │
 ├── 192.168.1.10.txt
+├── 192.168.1.10.xml
 ├── 192.168.1.20.txt
 ├── 10.10.10.5.txt
 │
@@ -317,7 +319,10 @@ results/
 ├── skipped.txt
 ├── rescanned.txt
 ├── not-pingip.txt
-└── failed.txt
+├── failed.txt
+├── retried.txt
+├── open-ports-inventory.csv
+└── open-ports-inventory.json
 ```
 
 ---
@@ -331,6 +336,59 @@ results/
 | rescanned.txt | Hosts rescanned after detection |
 | not-pingip.txt | Hosts skipped after failed ping validation |
 | failed.txt | Scan failures |
+| retried.txt | Targets that needed another attempt |
+
+---
+
+## Automation and Reporting
+
+### Built-in Profiles
+
+```bash
+python3 scanrunner.py -f targets.txt -o results --profile quick
+python3 scanrunner.py -f targets.txt -o results --profile web
+python3 scanrunner.py -f targets.txt -o results --profile full
+```
+
+Available profiles: `quick`, `full`, `web`, `udp`, and `vuln`. Any Nmap
+arguments supplied after the profile are appended to the profile.
+
+### Non-interactive and Parallel Scans
+
+Use `--yes` for automation. Pair it with `--parallel` for bounded concurrent
+scans and `--retries` for transient failures. Parallel mode intentionally has
+no keyboard controls or live per-process output.
+
+```bash
+python3 scanrunner.py -f targets.txt -o results --yes --parallel 4 --retries 1 -sV
+python3 scanrunner.py -f targets.txt -o results --resume --skip-ping --no-color -sV
+```
+
+### Scope and Asset Metadata
+
+`--scope-file` refuses targets that are not explicitly listed or contained by
+an allowlisted CIDR. Use it for authorized engagement boundaries.
+
+```text
+# scope.txt
+10.10.0.0/16
+scanner.example.internal
+```
+
+Optional metadata is included in the generated inventories:
+
+```csv
+target,owner,environment
+10.10.1.25,Platform Team,production
+```
+
+```bash
+python3 scanrunner.py -f targets.txt -o results --scope-file scope.txt \
+  --metadata-csv assets.csv --html-report -sV
+```
+
+Each run creates normal Nmap output (`.txt`), XML (`.xml`), and an open-port
+inventory in CSV and JSON. `--html-report` also writes `open-ports-report.html`.
 
 ---
 
@@ -374,7 +432,7 @@ results/
 ## Example Execution
 
 ```bash
-python3 scanrunner.py alive.txt client-network '-sV -A -T4'
+python3 scanrunner.py -f alive.txt -o client-network -sV -A -T4
 ```
 
 Output:
@@ -392,7 +450,16 @@ Target: 172.16.5.120
 [+] Host is alive
 
 [+] Command:
-nmap -sV -A -T4 172.16.5.120 -oN results/172.16.5.120.txt
+nmap --stats-every 15s -sV -A -T4 -oN client-network/172.16.5.120.txt -- 172.16.5.120
+```
+
+### Hosts Blocking Ping
+
+When `-Pn` is supplied, scanrunner does not run its own ping check and does not
+add a second `-Pn`. This lets Nmap scan hosts that block ICMP or discovery probes.
+
+```bash
+python3 scanrunner.py -i 192.168.1.50 -o results -Pn -sV
 ```
 
 ---
