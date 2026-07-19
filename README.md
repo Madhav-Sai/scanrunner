@@ -200,6 +200,30 @@ nmap --version
 python3 scanrunner.py (-f <targets.txt> | -i <target>) [-o <output_folder>] [nmap arguments]
 ```
 
+### Section Help
+
+Run `python3 scanrunner.py` with no arguments to display the grouped command
+overview and ASCII banner. Read a focused help page without supplying a target
+file or installing Nmap/NXC:
+
+```bash
+python3 scanrunner.py --help nxc
+python3 scanrunner.py -nxc -h
+python3 scanrunner.py --template -h
+python3 scanrunner.py --split -h
+python3 scanrunner.py --help nmap
+python3 scanrunner.py --help reports
+```
+
+Every regular flag also has focused help. Use either form below, and use
+`--help-all` to print the full option reference:
+
+```bash
+python3 scanrunner.py --parallel -h
+python3 scanrunner.py --help output
+python3 scanrunner.py --help-all
+```
+
 ### Examples
 
 #### Service Enumeration
@@ -253,6 +277,20 @@ IPv6
 Hostnames
 CIDR Ranges
 ```
+
+### Split a target list
+
+Use `--split N` with `--file` to create `N` balanced target files before
+scanning. The source file is never modified. Blank lines, comments, and duplicate
+targets are omitted from the split files.
+
+```bash
+python3 scanrunner.py --file targets.txt --split 3
+```
+
+For `targets.txt`, this writes `targets_part_1.txt`, `targets_part_2.txt`, and
+`targets_part_3.txt` in the same directory. `N` must be at least 1 and cannot
+exceed the number of unique usable targets.
 
 ---
 
@@ -350,8 +388,39 @@ python3 scanrunner.py -f targets.txt -o results --profile web
 python3 scanrunner.py -f targets.txt -o results --profile full
 ```
 
-Available profiles: `quick`, `full`, `web`, `udp`, and `vuln`. Any Nmap
-arguments supplied after the profile are appended to the profile.
+`--profile`, `--template`, and `--preset` are equivalent. They are optional
+shortcuts: omit them and use ordinary Nmap arguments whenever you prefer.
+Any Nmap arguments supplied after a preset are appended to the preset.
+
+List the exact Nmap arguments in every preset:
+
+```bash
+python3 scanrunner.py --list-templates
+# Alias: python3 scanrunner.py --template -vv
+```
+
+| Preset | Included Nmap arguments | Best for |
+|---|---|---|
+| `quick` | `-sV -T4 --top-ports 100` | Fast service check |
+| `full` | `-sS -sV -O -T4 -p-` | Thorough TCP scan |
+| `full-fast` | `-sV -A -Pn --min-rate 200 -p-` | Fast full-port scan |
+| `web` | `-sV -p 80,443,8080,8443 --script http-title,http-headers` | Web identification |
+| `web-enum` | `-sV -p 80,443,8080,8443 --script http-title,http-headers,http-enum` | Web enumeration |
+| `ssl-ciphers` | `-sV -p 443,8443,9443 --script ssl-enum-ciphers` | TLS cipher review |
+| `smb-audit` | `-sV -p 139,445 --script smb-os-discovery,smb-protocols,smb-security-mode` | SMB hardening review |
+| `rdp-audit` | `-sV -p 3389 --script rdp-enum-encryption,rdp-ntlm-info` | RDP hardening review |
+| `udp` | `-sU -sV --top-ports 100` | Common UDP services |
+| `vuln` | `-sV --script vuln` | Nmap vulnerability scripts |
+
+```bash
+# Equivalent aliases; use whichever reads best in your workflow.
+python3 scanrunner.py -f targets.txt --template ssl-ciphers
+python3 scanrunner.py -f targets.txt --preset full-fast --host-timeout 10m
+python3 scanrunner.py -f targets.txt --template full-fast -vv
+
+# No preset: pass raw Nmap arguments as before.
+python3 scanrunner.py -f targets.txt -sV -A -Pn --min-rate 200 -p-
+```
 
 ### Non-interactive and Parallel Scans
 
@@ -389,6 +458,41 @@ python3 scanrunner.py -f targets.txt -o results --scope-file scope.txt \
 
 Each run creates normal Nmap output (`.txt`), XML (`.xml`), and an open-port
 inventory in CSV and JSON. `--html-report` also writes `open-ports-report.html`.
+
+### NetExec (NXC) tables
+
+Use `-nxc` (or `--nxc`) to run any installed NetExec protocol and its native
+options against the supplied target or target file. scanrunner saves the complete
+NetExec output plus a terminal table and CSV/JSON table export.
+
+```bash
+# General SMB inventory table; any normal NXC options are passed through.
+python3 scanrunner.py -f targets.txt -nxc smb --timeout 5
+
+# Display only the SMB facts needed for a hardening review.
+python3 scanrunner.py -f targets.txt -nxc smb --nxc-query os,hostname,smbv1,smb-signing
+
+# Test whether anonymous SMB authentication succeeds. Empty credentials are added automatically.
+python3 scanrunner.py -f targets.txt -nxc smb --nxc-query null-auth
+
+# Show only RDP Network Level Authentication status.
+python3 scanrunner.py -f targets.txt -nxc rdp --nxc-query rdp-nla
+```
+
+Focused fields are `os`, `hostname`, `smbv1`, `smb-signing`, `null-auth`, and
+`rdp-nla`; `--nxc-query all` shows every field. NetExec options and modules are
+not restricted by scanrunner, so use only those authorized for your engagement.
+NXC mode supports target, output, scope, and color options; Nmap-only workflow
+flags are rejected rather than silently ignored.
+
+### Testing
+
+Run the offline regression suite (it uses mocked scanner commands and does not
+send network traffic):
+
+```bash
+python3 -m unittest discover -s tests -v
+```
 
 ---
 
