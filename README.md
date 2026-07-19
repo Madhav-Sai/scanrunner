@@ -380,7 +380,7 @@ Resume interrupted assessments instantly.
 
 ```text
 [r] Resume (skip completed)  [f] Fresh (review all)
-```
+
 
 Previously completed hosts are automatically excluded.
 
