@@ -1,21 +1,21 @@
 <div align="center">
 
-# scanrunner
-
-### Interactive Nmap and NetExec Automation Framework
-
-[![Release](https://img.shields.io/github/v/release/Madhav-Sai/scanrunner?style=for-the-badge&logo=github&color=2563eb)](https://github.com/Madhav-Sai/scanrunner/releases)
-[![Stars](https://img.shields.io/github/stars/Madhav-Sai/scanrunner?style=for-the-badge&logo=github&color=0891b2)](https://github.com/Madhav-Sai/scanrunner/stargazers)
-[![Forks](https://img.shields.io/github/forks/Madhav-Sai/scanrunner?style=for-the-badge&logo=github&color=0284c7)](https://github.com/Madhav-Sai/scanrunner/forks)
-[![Last Commit](https://img.shields.io/github/last-commit/Madhav-Sai/scanrunner?style=for-the-badge&logo=github&color=1d4ed8)](https://github.com/Madhav-Sai/scanrunner/commits/main)
-
-[![Python](https://img.shields.io/badge/Python-3.8%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
-[![Nmap](https://img.shields.io/badge/Nmap-Required-004170?style=for-the-badge)](https://nmap.org/)
-[![NetExec](https://img.shields.io/badge/NetExec-Optional-7c3aed?style=for-the-badge)](https://github.com/Pennyw0rth/NetExec)
-[![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-0ea5e9?style=for-the-badge)](#installation)
-[![Security](https://img.shields.io/badge/Use-Authorized%20Assessments-success?style=for-the-badge)](#security-notice)
+<img src="https://readme-typing-svg.demolab.com?font=JetBrains+Mono&weight=700&size=34&pause=1200&color=00BFFF&center=true&vCenter=true&width=1000&height=80&lines=scanrunner;Interactive+Nmap+%26+NetExec+Automation;Built+for+VAPT+Engagements" alt="scanrunner animated title" />
 
 <br>
+
+<img src="https://img.shields.io/badge/Release-v1.2.0-2563eb?style=for-the-badge&logo=github&logoColor=white" alt="Release v1.2.0" />
+<img src="https://img.shields.io/badge/Python-3.8%2B-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.8+" />
+<img src="https://img.shields.io/badge/Nmap-Required-004170?style=for-the-badge" alt="Nmap required" />
+<img src="https://img.shields.io/badge/NetExec-Optional-7c3aed?style=for-the-badge" alt="NetExec optional" />
+
+<br><br>
+
+<img src="https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-0ea5e9?style=for-the-badge" alt="Supported platforms" />
+<img src="https://img.shields.io/badge/Status-Active-16a34a?style=for-the-badge" alt="Active status" />
+<img src="https://img.shields.io/badge/Security-VAPT-0891b2?style=for-the-badge" alt="VAPT security" />
+
+<br><br>
 
 ```text
    _____                  ____
@@ -25,7 +25,9 @@
 /____/\___/\__,_/_/ /_//_/ |_|\__,_/_/ /_/_/ /_/\___/_/
 ```
 
-**Automate • Resume • Track • Enumerate**
+### Interactive Nmap and NetExec Automation Framework
+
+*Automate • Resume • Track • Enumerate*
 
 </div>
 
