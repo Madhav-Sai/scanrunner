@@ -80,6 +80,22 @@ class HelpAndCompletionTests(unittest.TestCase):
         result = self.run_cli("--completion", "fish")
         self.assertEqual(result.returncode, 2)
 
+    def test_skip_no_ping_flag_parses(self):
+        with mock.patch.object(sys, "argv", ["scanrunner", "-i", "127.0.0.1", "-ok"]):
+            args = sr.parse_args()
+        self.assertTrue(args.skip_no_ping)
+        self.assertNotIn("-ok", args.nmap_extra)
+
+    def test_skip_no_ping_long_flag_parses(self):
+        with mock.patch.object(sys, "argv", ["scanrunner", "-i", "127.0.0.1", "--skip-no-ping"]):
+            args = sr.parse_args()
+        self.assertTrue(args.skip_no_ping)
+
+    def test_nxc_rejects_skip_no_ping(self):
+        result = self.run_cli("-i", "127.0.0.1", "-nxc", "smb", "-ok")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("skip-no-ping", result.stderr)
+
 
 class NxcParsingTests(unittest.TestCase):
     def test_parse_smb_output(self):

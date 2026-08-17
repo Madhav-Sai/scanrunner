@@ -618,6 +618,40 @@ add a second `-Pn`. This lets Nmap scan hosts that block ICMP or discovery probe
 python3 scanrunner.py -i 192.168.1.50 -o results -Pn -sV
 ```
 
+
+### Automatically Skip No-Ping Targets
+
+Use `-ok` (or `--skip-no-ping`) when you want scanrunner to keep the normal
+wrapper ping check but automatically skip targets that do not respond.
+
+```bash
+scanrunner -f file.txt -o nmap -ok -sV -A
+```
+
+Behavior:
+
+```text
+Ping succeeds  -> scan normally
+Ping fails     -> log to not-pingip.txt and skip automatically
+No prompt      -> scanrunner does not ask whether to retry with -Pn
+```
+
+Without `-ok`, the existing interactive behavior is unchanged:
+
+```text
+Run nmap with -Pn anyway? [y/n]:
+```
+
+`-ok` is different from both `--skip-ping` and Nmap's `-Pn`:
+
+| Option | Wrapper ping | On ping failure | Nmap discovery |
+|---|---|---|---|
+| default | Yes | Ask `[y/n]` about `-Pn` | Normal |
+| `-ok` | Yes | Auto-skip + log | Normal |
+| `--skip-ping` | No | Not applicable | Normal |
+| `-Pn` | No | Not applicable | Disabled by Nmap |
+
+
 ---
 
 ## Roadmap

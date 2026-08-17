@@ -11,6 +11,7 @@ import json
 import html
 import ipaddress
 import signal
+import socket
 import shutil
 import time
 import tty
@@ -22,6 +23,7 @@ import argparse
 import subprocess
 import tempfile
 from datetime import datetime
+from urllib.parse import urlsplit
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 __version__ = "1.2.0"
@@ -325,6 +327,12 @@ Examples:
   scanrunner -f targets.txt -sV -A -Pn --min-rate 200 -p-
   scanrunner -i 10.10.10.10 -o results -sS -sV
   scanrunner -f targets.txt --template smb-audit
+  scanrunner -f targets.txt -ok -sV -A
+
+Ping decision helpers:
+  -ok, --skip-no-ping     Skip and log wrapper ping failures without prompting
+  --skip-ping             Do not perform scanrunner's wrapper ping check
+  -Pn                     Nmap option: bypass host discovery and scan anyway
 
 All unrecognized arguments are passed directly to Nmap. Use nmap --help for
 the complete current list of Nmap flags and NSE scripts. Use -v or -vv for
@@ -340,6 +348,7 @@ Output options:
 Automation options:
   --yes                  Non-interactive mode
   --resume               Skip targets with completed reports
+  -ok, --skip-no-ping    Skip and log wrapper ping failures without prompting
   --parallel N           Run N non-interactive scans concurrently (requires --yes)
   --retries N            Retry failed scans N times
   --scope-file FILE      Refuse targets outside the authorized scope
@@ -369,6 +378,7 @@ OPTION_ALIASES = {
     "-o": "output", "--output": "output", "output": "output", "--exclude": "exclude", "exclude": "exclude",
     "--exclude-file": "exclude-file", "exclude-file": "exclude-file", "--nxc-query": "nxc-query", "nxc-query": "nxc-query",
     "--yes": "yes", "yes": "yes", "--resume": "resume", "resume": "resume", "--skip-ping": "skip-ping", "skip-ping": "skip-ping",
+    "-ok": "skip-no-ping", "--skip-no-ping": "skip-no-ping", "skip-no-ping": "skip-no-ping",
     "--no-color": "no-color", "no-color": "no-color", "--scope-file": "scope-file", "scope-file": "scope-file",
     "--retries": "retries", "retries": "retries", "--parallel": "parallel", "parallel": "parallel",
     "--metadata-csv": "metadata-csv", "metadata-csv": "metadata-csv", "--html-report": "html-report", "html-report": "html-report",
@@ -400,9 +410,73 @@ def print_all_option_help():
         print()
 
 
+
+def completion_script(shell):
+    """Return a lightweight native completion script for Bash or Zsh."""
+    options = [
+        "-h", "--help", "-v", "--version", "-f", "--file", "-i", "--ip",
+        "--split", "--profile", "--template", "--preset", "--exclude",
+        "--exclude-file", "-nxc", "--nxc", "--nxc-query", "--yes",
+        "--resume", "--skip-ping", "-ok", "--skip-no-ping", "--no-color",
+        "--scope-file", "--retries", "--parallel", "-o", "--output",
+        "--metadata-csv", "--html-report", "--list-templates", "--help-all",
+        "--nmap", "--reports", "--nxc-native-help", "--completion",
+    ]
+    profiles = " ".join(sorted(SCAN_PROFILES))
+    protocols = "smb rdp ldap winrm ssh ftp mssql wmi vnc nfs"
+    queries = " ".join(sorted(NXC_QUERY_CHOICES))
+
+    if shell == "bash":
+        words = " ".join(options)
+        return f"""_scanrunner_completion() {{
+    local cur prev
+    COMPREPLY=()
+    cur="${{COMP_WORDS[COMP_CWORD]}}"
+    prev="${{COMP_WORDS[COMP_CWORD-1]}}"
+    case "$prev" in
+        --profile|--template|--preset) COMPREPLY=( $(compgen -W "{profiles}" -- "$cur") ); return ;;
+        -nxc|--nxc|--nxc-native-help) COMPREPLY=( $(compgen -W "{protocols}" -- "$cur") ); return ;;
+        --nxc-query) COMPREPLY=( $(compgen -W "{queries}" -- "$cur") ); return ;;
+        -f|--file|--exclude-file|--scope-file|--metadata-csv) COMPREPLY=( $(compgen -f -- "$cur") ); return ;;
+        -o|--output) COMPREPLY=( $(compgen -d -- "$cur") ); return ;;
+    esac
+    COMPREPLY=( $(compgen -W "{words}" -- "$cur") )
+}}
+complete -F _scanrunner_completion scanrunner
+"""
+
+    if shell == "zsh":
+        return f"""#compdef scanrunner
+_scanrunner() {{
+  _arguments -C \\
+    '(-f --file)'{{-f,--file}}'[target file]:file:_files' \\
+    '(-i --ip)'{{-i,--ip}}'[single target]:target:' \\
+    '--profile[profile]:profile:({profiles})' \\
+    '--template[template]:template:({profiles})' \\
+    '--preset[preset]:preset:({profiles})' \\
+    '(-nxc --nxc)'{{-nxc,--nxc}}'[NetExec protocol]:protocol:({protocols})' \\
+    '--nxc-query[NXC result fields]:query:({queries})' \\
+    '(-ok --skip-no-ping)'{{-ok,--skip-no-ping}}'[auto-skip wrapper ping failures]' \\
+    '(-o --output)'{{-o,--output}}'[output directory]:directory:_directories' \\
+    '*:argument:'
+}}
+_scanrunner "$@"
+"""
+    raise ValueError("completion shell must be zsh or bash")
+
+
 def handle_topic_help():
     """Route standalone version/help requests before argparse validation."""
     arguments = sys.argv[1:]
+
+    if len(arguments) == 2 and arguments[0] == "--completion":
+        shell = arguments[1].lower()
+        if shell not in {"zsh", "bash"}:
+            print("scanrunner: error: --completion supports only zsh or bash",
+                  file=sys.stderr)
+            sys.exit(2)
+        print(completion_script(shell), end="")
+        sys.exit(0)
 
     # Standalone version commands must not require a target. Keep ``-v``
     # available to Nmap whenever a target was supplied.
@@ -508,6 +582,9 @@ def parse_args():
                         help="Skip targets with completed reports without prompting")
     workflow_group.add_argument("--skip-ping", action="store_true",
                         help="Skip wrapper ping checks; Nmap still performs discovery")
+    workflow_group.add_argument("-ok", "--skip-no-ping", dest="skip_no_ping",
+                        action="store_true",
+                        help="Automatically skip and log targets that fail wrapper ping")
     workflow_group.add_argument("--no-color", action="store_true",
                         help="Disable ANSI color output")
     workflow_group.add_argument("--scope-file", metavar="FILE",
@@ -562,6 +639,8 @@ def parse_args():
             unsupported_nxc_options.append("--resume")
         if args.skip_ping:
             unsupported_nxc_options.append("--skip-ping")
+        if args.skip_no_ping:
+            unsupported_nxc_options.append("-ok/--skip-no-ping")
         if args.retries:
             unsupported_nxc_options.append("--retries")
         if args.parallel > 1:
@@ -583,12 +662,104 @@ def parse_args():
     return args
 
 
+
+def normalize_target(raw):
+    """Normalize URLs/host:port input into a scanner-friendly host target."""
+    target = str(raw).strip()
+    if not target:
+        return ""
+
+    # Preserve CIDR targets exactly; ipaddress validates both IPv4 and IPv6.
+    if "/" in target:
+        try:
+            ipaddress.ip_network(target, strict=False)
+            return target
+        except ValueError:
+            pass
+
+    # URL input: keep only the hostname.
+    if "://" in target:
+        try:
+            parsed = urlsplit(target)
+            if parsed.hostname:
+                return parsed.hostname
+        except ValueError:
+            return target
+
+    # Bracketed IPv6 with an optional port: [2001:db8::1]:443
+    bracketed = re.fullmatch(r"\[([0-9A-Fa-f:]+)\](?::\d+)?", target)
+    if bracketed:
+        return bracketed.group(1)
+
+    # host:port / IPv4:port. Avoid touching raw IPv6 literals containing
+    # multiple colons.
+    if target.count(":") == 1:
+        host, port = target.rsplit(":", 1)
+        if host and port.isdigit():
+            return host
+
+    return target
+
+
+def resolve_scan_target(target, timeout=8):
+    """Resolve a hostname with a bounded timeout.
+
+    Returns (resolved_target, message). IP literals and CIDRs are returned
+    unchanged. A failed/timeout lookup also returns the original hostname so
+    Nmap can still apply its own resolver when appropriate.
+    """
+    target = normalize_target(target)
+
+    try:
+        if "/" in target:
+            ipaddress.ip_network(target, strict=False)
+            return target, "CIDR target; DNS resolution not required"
+        ipaddress.ip_address(target)
+        return target, "IP target; DNS resolution not required"
+    except ValueError:
+        pass
+
+    result = {}
+    error = {}
+
+    def _lookup():
+        try:
+            infos = socket.getaddrinfo(target, None, type=socket.SOCK_STREAM)
+            addresses = []
+            for info in infos:
+                address = info[4][0]
+                if address not in addresses:
+                    addresses.append(address)
+            if addresses:
+                result["address"] = addresses[0]
+        except Exception as exc:
+            error["error"] = exc
+
+    worker = threading.Thread(target=_lookup, daemon=True)
+    worker.start()
+    worker.join(timeout)
+
+    if worker.is_alive():
+        return target, f"DNS resolution timed out after {timeout}s; using hostname"
+    if "address" in result:
+        return result["address"], f"{target} resolved to {result['address']}"
+    if "error" in error:
+        return target, f"DNS resolution failed for {target}: {error['error']}"
+    return target, f"DNS resolution returned no address for {target}; using hostname"
+
+
 def load_targets(path):
-    """Load unique targets, ignoring blank lines and comments."""
+    """Load normalized unique targets, ignoring blank lines and comments."""
     try:
         with open(path, encoding="utf-8") as file:
-            raw_targets = [target for line in file
-                           if (target := strip_inline_comment(line))]
+            raw_targets = []
+            for line in file:
+                cleaned = strip_inline_comment(line)
+                if not cleaned:
+                    continue
+                normalized = normalize_target(cleaned)
+                if normalized:
+                    raw_targets.append(normalized)
     except OSError as error:
         print(c(C.RED + C.BOLD, f"  [!] Cannot read target file: {error}"))
         sys.exit(1)
@@ -1299,8 +1470,9 @@ def main():
         output_dir = args.output
         os.makedirs(output_dir, exist_ok=True)
         if args.ip:
-            ips = [args.ip.strip()]
-            target_source = args.ip.strip()
+            normalized_ip = normalize_target(args.ip)
+            ips = [normalized_ip]
+            target_source = normalized_ip
         else:
             if not os.path.exists(args.file):
                 print(c(C.RED + C.BOLD, f"  [!] File not found: {args.file}"))
@@ -1346,8 +1518,9 @@ def main():
 
     # ── Build target list ─────────────────────────────────────────────────────
     if args.ip:
-        ips = [args.ip.strip()]
-        print(c(C.CYAN, f"  Target   : {args.ip}"))
+        normalized_ip = normalize_target(args.ip)
+        ips = [normalized_ip]
+        print(c(C.CYAN, f"  Target   : {normalized_ip}"))
     else:
         if not os.path.exists(args.file):
             print(c(C.RED + C.BOLD, f"  [!] File not found: {args.file}"))
@@ -1364,6 +1537,8 @@ def main():
         sys.exit(1)
 
     print(c(C.CYAN, f"  Output   : {output_dir}"))
+    if args.skip_no_ping:
+        print(c(C.CYAN, "  No-ping  : auto-skip enabled (-ok)"))
 
     # ── --host-timeout warning ────────────────────────────────────────────────
     if args.nmap_args:
@@ -1541,6 +1716,16 @@ def main():
             if (not nmap_uses_pn and not args.skip_ping and not is_network_target(ip)
                     and not ping_host(ip)):
                 print(c(C.ORANGE + C.BOLD, f"  [-] {ip} did not respond to ping."))
+
+                # -ok / --skip-no-ping is intentionally opt-in. It changes only
+                # the wrapper ping-failure decision: no prompt, no -Pn fallback.
+                if args.skip_no_ping:
+                    log_to_file(not_ping_file, ip)
+                    print(c(C.ORANGE,
+                            f"  [~] -ok enabled: logged {ip} as no-ping and skipped."))
+                    done_count += 1
+                    continue
+
                 ping_choice = "n" if args.yes else ""
                 while not ping_choice:
                     ping_choice = safe_input(
