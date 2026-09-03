@@ -344,6 +344,38 @@ For `targets.txt`, this writes `targets_part_1.txt`, `targets_part_2.txt`, and
 `targets_part_3.txt` in the same directory. `N` must be at least 1 and cannot
 exceed the number of unique usable targets.
 
+If it's easier to think in terms of group size instead of file count, use
+`--split-size N` instead — it splits into as many files as needed so each one
+has about `N` targets:
+
+```bash
+python3 scanrunner.py --file targets.txt --split-size 50
+```
+
+Use only one of `--split` / `--split-size`.
+
+### Large target lists: automatic terminal-tab offer
+
+You don't have to plan a split ahead of time. When an interactive run has 20
+or more pending targets, scanrunner offers to divide the work across separate
+terminal tabs/windows instead of scanning everything, one host at a time, in
+the current window:
+
+```text
+[*] Large target list detected: 84 targets pending.
+Split across separate terminal tabs? Enter number of tabs (2-84), or press Enter to continue in this window:
+```
+
+Press Enter to decline and keep scanning normally, or enter a tab count to
+launch that many independent scanrunner processes — each with its own target
+file and its own output subfolder (`tab_1/`, `tab_2/`, ...), so concurrent
+tabs never race on the same report files. A `tab-manifest.txt` in the main
+output folder records exactly which targets went to which tab. If no terminal
+emulator can be opened (for example, a headless shell), that tab runs in the
+background instead, with its own `console.log` to watch — a batch of targets
+is never silently dropped. This prompt only appears on a real interactive
+terminal; it never fires under `--yes`, `--parallel`, or piped/non-tty input.
+
 ---
 
 ## Existing Scan Detection
@@ -427,6 +459,30 @@ results/
 | not-pingip.txt | Hosts skipped after failed ping validation |
 | failed.txt | Scan failures |
 | retried.txt | Targets that needed another attempt |
+| unaccounted.txt | Written only if a run ends with targets that have no recorded outcome at all |
+
+### Reconciliation check
+
+At the end of every run, scanrunner cross-checks the full input target list
+against completed.txt, skipped.txt, not-pingip.txt, and failed.txt. Every
+target should land in at least one of those. If a run gets interrupted before
+reaching some hosts (Ctrl+C, a closed terminal, a killed process), those hosts
+won't be in any of them yet — scanrunner prints a loud warning listing them
+and writes `unaccounted.txt` so a partially finished assessment can never be
+mistaken for a complete one:
+
+```text
+[!] WARNING: 3 target(s) have NO recorded outcome (scan likely interrupted before reaching them):
+    1.1.1.1
+    8.8.8.8
+    9.9.9.9
+[!] Saved to: results/unaccounted.txt
+[!] Re-run with --resume to pick these up, or investigate before reporting results.
+```
+
+A clean run instead prints `Reconciliation OK — all N input target(s) are
+accounted for.` Before reporting scan results to a client, check for this line
+or for the absence of `unaccounted.txt`.
 
 ---
 
@@ -536,6 +592,11 @@ Focused fields are `os`, `hostname`, `smbv1`, `smb-signing`, `null-auth`, and
 not restricted by scanrunner, so use only those authorized for your engagement.
 NXC mode supports target, output, scope, and color options; Nmap-only workflow
 flags are rejected rather than silently ignored.
+
+By default, `-nxc` writes its `nxc-<protocol>-<timestamp>.{txt,csv,json}`
+files directly into the current directory rather than into `results/` — pass
+`-o DIR` to send them somewhere else. Normal (non-`-nxc`) scans keep the
+`results/` default.
 
 ### Testing
 

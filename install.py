@@ -25,7 +25,7 @@ PROFILES = [
 NXC_PROTOCOLS = ["smb", "rdp", "ldap", "winrm", "ssh", "ftp", "mssql", "wmi", "vnc", "nfs"]
 NXC_QUERIES = ["os", "hostname", "smbv1", "smb-signing", "null-auth", "rdp-nla", "all"]
 OPTIONS = [
-    "-h", "--help", "-f", "--file", "-i", "--ip", "--split", "--profile",
+    "-h", "--help", "-f", "--file", "-i", "--ip", "--split", "--split-size", "--profile",
     "--template", "--preset", "--exclude", "--exclude-file", "-nxc", "--nxc",
     "--nxc-query", "--yes", "--resume", "--skip-ping", "-ok", "--skip-no-ping", "--no-color",
     "--scope-file", "--retries", "--parallel", "-o", "--output",
@@ -168,7 +168,8 @@ _scanrunner() {{
   _arguments -C \\
     '(-f --file)'{{-f,--file}}'[target file]:target file:_files' \\
     '(-i --ip)'{{-i,--ip}}'[single IP, hostname, URL, or CIDR]:target:' \\
-    '--split[split target file]:parts:' \\
+    '--split[split target file into N files]:parts:' \\
+    '--split-size[split target file into groups of N]:targets per file:' \\
     '--profile[use Nmap profile]:profile:({profiles})' \\
     '--template[use Nmap template]:template:({profiles})' \\
     '--preset[use Nmap preset]:preset:({profiles})' \\

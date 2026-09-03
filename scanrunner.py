@@ -13,10 +13,21 @@ import ipaddress
 import signal
 import socket
 import shutil
+import shlex
 import time
-import tty
-import termios
 import select
+
+# tty/termios are POSIX-only and back the raw-keystroke live controls
+# (Space/Ctrl+X/Ctrl+C during a scan). They don't exist on Windows, so the
+# live key-watcher is disabled there instead of crashing at import time.
+if sys.platform != "win32":
+    import tty
+    import termios
+else:
+    tty = None
+    termios = None
+
+RAW_MODE_SUPPORTED = sys.platform != "win32"
 import queue
 import threading
 import argparse
@@ -27,6 +38,10 @@ from urllib.parse import urlsplit
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 __version__ = "1.2.0"
+
+# When an interactive run has at least this many pending targets, offer to
+# split the work across separate terminal tabs (see offer_terminal_tabs()).
+AUTO_TAB_PROMPT_THRESHOLD = 20
 
 
 SCAN_PROFILES = {
@@ -130,7 +145,7 @@ _original_term_settings = None
 
 def _save_terminal():
     global _original_term_settings
-    if sys.stdin.isatty():
+    if RAW_MODE_SUPPORTED and sys.stdin.isatty():
         try:
             _original_term_settings = termios.tcgetattr(sys.stdin.fileno())
         except Exception:
@@ -138,7 +153,7 @@ def _save_terminal():
 
 def restore_terminal():
     global _original_term_settings
-    if _original_term_settings is not None:
+    if RAW_MODE_SUPPORTED and _original_term_settings is not None:
         try:
             termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN,
                               _original_term_settings)
@@ -151,19 +166,23 @@ def restore_terminal():
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def log_to_file(filename, data):
-    with open(filename, "a") as f:
+    with open(filename, "a", encoding="utf-8") as f:
         f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | {data}\n")
 
-def count_unique_ips(path):
+def read_logged_ips(path):
+    """Return the set of unique targets recorded in an audit-log file."""
     if not os.path.exists(path):
-        return 0
+        return set()
     seen = set()
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             parts = line.strip().split("|")
             if len(parts) >= 2:
                 seen.add(parts[-1].strip())
-    return len(seen)
+    return seen
+
+def count_unique_ips(path):
+    return len(read_logged_ips(path))
 
 def sanitize_filename(ip):
     return ip.replace(":", "_").replace("/", "_")
@@ -231,7 +250,7 @@ def load_metadata(path):
     if not path:
         return {}
     try:
-        with open(path, newline="", encoding="utf-8") as file:
+        with open(path, newline="", encoding="utf-8-sig") as file:
             reader = csv.DictReader(file)
             if not reader.fieldnames or "target" not in reader.fieldnames:
                 raise ValueError("CSV must include a target column")
@@ -244,7 +263,7 @@ def load_scope(path):
     if not path:
         return []
     try:
-        with open(path, encoding="utf-8") as file:
+        with open(path, encoding="utf-8-sig") as file:
             return [cleaned for line in file if (cleaned := strip_inline_comment(line))]
     except OSError as error:
         print(c(C.RED + C.BOLD, f"  [!] Cannot read scope file: {error}"))
@@ -307,16 +326,29 @@ Nmap verbosity is passed through normally:
 """,
     "split": """Target splitting help
 
+Two ways to split a target file — pick whichever is easier to reason about:
+
+  --split N        Split into exactly N files (you choose the file count)
+  --split-size N   Split into files of N targets each (you choose the group size;
+                    the file count is worked out for you)
+
 Usage:
   scanrunner -f targets.txt --split <number-of-files>
+  scanrunner -f targets.txt --split-size <targets-per-file>
 
-Example:
-  scanrunner -f targets.txt --split 3
+Examples:
+  scanrunner -f targets.txt --split 3            # -> 3 files, balanced
+  scanrunner -f targets.txt --split-size 50       # -> ceil(total/50) files, ~50 targets each
 
 Creates balanced files such as targets_part_1.txt beside the source file.
 The source is never modified. Blank lines, comments, and duplicate targets are
-ignored. The requested number must be at least 1 and no greater than the number
-of usable unique targets.
+ignored. --split's N must be at least 1 and no greater than the number of
+usable unique targets; --split-size's N must be at least 1 (the last file may
+have fewer targets than the others). Use only one of --split / --split-size.
+
+Note: you don't have to plan ahead. If you load a large target file directly
+into a normal scan (no --split), scanrunner will offer to split the work
+across separate terminal tabs interactively — see `scanrunner --nmap -h`.
 """,
     "nmap": """Nmap scan help
 
@@ -334,6 +366,12 @@ Ping decision helpers:
   --skip-ping             Do not perform scanrunner's wrapper ping check
   -Pn                     Nmap option: bypass host discovery and scan anyway
 
+Large target lists:
+  An interactive run with 20+ pending targets is offered a choice: split the
+  work across separate terminal tabs/windows, or keep scanning them one at a
+  time in this window. See --split -h for the offer's details, or --split /
+  --split-size to prepare separate files yourself ahead of time.
+
 All unrecognized arguments are passed directly to Nmap. Use nmap --help for
 the complete current list of Nmap flags and NSE scripts. Use -v or -vv for
 more verbose Nmap output.
@@ -341,7 +379,8 @@ more verbose Nmap output.
     "reports": """Reporting and automation help
 
 Output options:
-  -o DIR                 Save reports in DIR (default: results)
+  -o DIR                 Save reports in DIR (default: results; current
+                          directory when combined with -nxc)
   --html-report          Add an HTML open-port report
   --metadata-csv FILE    Add owner/environment fields to inventories
 
@@ -352,13 +391,19 @@ Automation options:
   --parallel N           Run N non-interactive scans concurrently (requires --yes)
   --retries N            Retry failed scans N times
   --scope-file FILE      Refuse targets outside the authorized scope
+
+Every run ends by reconciling the full target list against completed.txt,
+skipped.txt, not-pingip.txt, and failed.txt. Any target with no recorded
+outcome at all (e.g. an interrupted run) is printed as a warning and saved to
+unaccounted.txt in the output directory — check for this before reporting
+results as final.
 """,
 }
 
 OPTION_HELP = {
     "file": "--file FILE\nRead IPs, hostnames, CIDRs, or ranges from FILE. Blank lines, # comments, and duplicates are ignored.\nExample: scanrunner -f targets.txt -sV",
     "ip": "--ip TARGET\nScan one IP address, hostname, or CIDR directly.\nExample: scanrunner -i 10.10.10.10 -sV",
-    "output": "--output DIR\nWrite reports, logs, and inventories to DIR. Default: results.\nExample: scanrunner -f targets.txt -o client-assessment -sV",
+    "output": "--output DIR\nWrite reports, logs, and inventories to DIR. Default: results (current directory when combined with -nxc).\nExample: scanrunner -f targets.txt -o client-assessment -sV",
     "exclude": "--exclude TARGET\nExclude one target or CIDR from an Nmap scan. Repeat for multiple exclusions.\nExample: scanrunner -f targets.txt --exclude 10.10.10.5 -sV",
     "exclude-file": "--exclude-file FILE\nPass FILE to Nmap as an exclusion list.\nExample: scanrunner -f targets.txt --exclude-file excluded.txt -sV",
     "nxc-query": "--nxc-query QUERY\nChoose NXC table fields: os, hostname, smbv1, smb-signing, null-auth, rdp-nla, all.\nExample: scanrunner -f targets.txt -nxc smb --nxc-query os,hostname,smbv1",
@@ -415,7 +460,7 @@ def completion_script(shell):
     """Return a lightweight native completion script for Bash or Zsh."""
     options = [
         "-h", "--help", "-v", "--version", "-f", "--file", "-i", "--ip",
-        "--split", "--profile", "--template", "--preset", "--exclude",
+        "--split", "--split-size", "--profile", "--template", "--preset", "--exclude",
         "--exclude-file", "-nxc", "--nxc", "--nxc-query", "--yes",
         "--resume", "--skip-ping", "-ok", "--skip-no-ping", "--no-color",
         "--scope-file", "--retries", "--parallel", "-o", "--output",
@@ -510,7 +555,7 @@ def handle_topic_help():
             sys.exit(0)
     elif len(arguments) == 2 and arguments[1] in {"-h", "--help"}:
         option_topics = {
-            "-nxc": "nxc", "--nxc": "nxc", "--split": "split",
+            "-nxc": "nxc", "--nxc": "nxc", "--split": "split", "--split-size": "split",
             "--profile": "templates", "--template": "templates", "--preset": "templates",
             "--nmap": "nmap", "--reports": "reports",
         }
@@ -559,6 +604,8 @@ def parse_args():
     mode_group = parser.add_argument_group("Target preparation")
     mode_group.add_argument("--split", type=int, metavar="N",
                             help="Split --file into N balanced files and exit")
+    mode_group.add_argument("--split-size", type=int, metavar="N",
+                            help="Split --file into files of N targets each and exit")
 
     nmap_group = parser.add_argument_group("Nmap scan options")
     nmap_group.add_argument("--profile", "--template", "--preset", dest="profile",
@@ -593,10 +640,12 @@ def parse_args():
                         help="Retry failed scans up to N times")
     workflow_group.add_argument("--parallel", type=int, default=1, metavar="N",
                                 help="Run up to N non-interactive scans concurrently")
+    workflow_group.add_argument("--no-auto-tabs", action="store_true",
+                                help=argparse.SUPPRESS)
 
     report_group = parser.add_argument_group("Output and reporting")
-    report_group.add_argument("-o", "--output", metavar="DIR", default="results",
-                              help="Output folder (default: results)")
+    report_group.add_argument("-o", "--output", metavar="DIR", default=None,
+                              help="Output folder (default: results; current dir for -nxc)")
     report_group.add_argument("--metadata-csv", metavar="FILE",
                         help="CSV with target,owner,environment columns")
     report_group.add_argument("--html-report", action="store_true",
@@ -609,6 +658,8 @@ def parse_args():
     # e.g. --script-args "user=admin pass=hi" becomes two broken tokens.
     if args.retries < 0 or args.parallel < 1:
         parser.error("--retries must be zero or greater and --parallel must be at least 1")
+    if args.split is not None and args.split_size is not None:
+        parser.error("use only one of --split or --split-size")
     if args.split is not None:
         if not args.file:
             parser.error("--split requires --file")
@@ -616,6 +667,13 @@ def parse_args():
             parser.error("--split must be at least 1")
         if args.nxc:
             parser.error("--split cannot be used with --nxc")
+    if args.split_size is not None:
+        if not args.file:
+            parser.error("--split-size requires --file")
+        if args.split_size < 1:
+            parser.error("--split-size must be at least 1")
+        if args.nxc:
+            parser.error("--split-size cannot be used with --nxc")
     nxc_queries = []
     for value in args.nxc_query:
         nxc_queries.extend(query.strip().lower() for query in value.split(",") if query.strip())
@@ -659,6 +717,8 @@ def parse_args():
         nmap_extra.extend(["--excludefile", args.exclude_file])
     args.nmap_extra = nmap_extra   # list of strings, used directly in _build_nmap_command
     args.nmap_args  = " ".join(nmap_extra)   # human-readable display only
+    if args.output is None:
+        args.output = "." if args.nxc else "results"
     return args
 
 
@@ -751,7 +811,7 @@ def resolve_scan_target(target, timeout=8):
 def load_targets(path):
     """Load normalized unique targets, ignoring blank lines and comments."""
     try:
-        with open(path, encoding="utf-8") as file:
+        with open(path, encoding="utf-8-sig") as file:
             raw_targets = []
             for line in file:
                 cleaned = strip_inline_comment(line)
@@ -771,6 +831,10 @@ def split_target_file(path, targets, parts):
     if parts > len(targets):
         print(c(C.RED + C.BOLD,
                 f"  [!] Cannot split {len(targets)} unique target(s) into {parts} files."))
+        print(c(C.YELLOW,
+                f"      Choose a number from 1 to {len(targets)}, "
+                "or use --split-size to split by group size instead "
+                "(e.g. --split-size 50 for ~50 targets per file)."))
         sys.exit(1)
 
     source_path = os.path.abspath(path)
@@ -967,9 +1031,12 @@ def run_nxc(binary, protocol, target_source, targets, nxc_extra, queries, output
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def ping_host(ip):
-    timeout = "1000" if sys.platform == "darwin" else "1"
-    r = subprocess.run(["ping", "-c", "1", "-W", timeout, ip],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if sys.platform == "win32":
+        cmd = ["ping", "-n", "1", "-w", "1000", ip]
+    else:
+        timeout = "1000" if sys.platform == "darwin" else "1"
+        cmd = ["ping", "-c", "1", "-W", timeout, ip]
+    r = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return r.returncode == 0
 
 
@@ -1157,7 +1224,7 @@ def run_nmap_scan(target, output_file, nmap_extra, use_pn=False):
     # ── key watcher thread ────────────────────────────────────────────────────
     # Runs in raw mode — catches Space / Ctrl+X / Ctrl+C as raw bytes.
     def _watch_keys():
-        if not stdin_is_tty:
+        if not stdin_is_tty or not RAW_MODE_SUPPORTED:
             return
         fd = sys.stdin.fileno()
         try:
@@ -1234,7 +1301,8 @@ def run_nmap_scan(target, output_file, nmap_extra, use_pn=False):
                 c(C.DIM, f"  [{mins:02d}:{secs:02d}]") +
                 c(C.DIM,  f"  scanning {target}") +
                 (c(C.GREEN, f"  |  {len(open_ports)} open") if open_ports else "") +
-                c(C.DIM, "   Space=status  Ctrl+X=skip  Ctrl+C=exit")
+                (c(C.DIM, "   Space=status  Ctrl+X=skip  Ctrl+C=exit")
+                 if stdin_is_tty and RAW_MODE_SUPPORTED else "")
             )
             continue
 
@@ -1396,29 +1464,52 @@ def write_inventory(output_dir, targets, metadata, write_html):
 #  SUMMARY BOX + OPEN PORTS TABLE
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def print_summary(completed_file, skipped_file, rescanned_file,
+def print_summary(ips, completed_file, skipped_file, rescanned_file,
                   not_ping_file, failed_file, output_dir):
-    completed = count_unique_ips(completed_file)
-    skipped   = count_unique_ips(skipped_file)
-    rescanned = count_unique_ips(rescanned_file)
-    no_ping   = count_unique_ips(not_ping_file)
-    failed    = count_unique_ips(failed_file)
+    completed_ips = read_logged_ips(completed_file)
+    skipped_ips   = read_logged_ips(skipped_file)
+    rescanned_ips = read_logged_ips(rescanned_file)
+    no_ping_ips   = read_logged_ips(not_ping_file)
+    failed_ips    = read_logged_ips(failed_file)
 
     print()
     print(c(C.BOLD, "  ╔══════════════════════════════╗"))
     print(c(C.BOLD, "  ║       SCAN SUMMARY           ║"))
     print(c(C.BOLD, "  ╠══════════════════════════════╣"))
-    print(c(C.BOLD, "  ║  ") + c(C.GREEN  + C.BOLD, f"  Completed : {completed:<5}") + c(C.BOLD, "         ║"))
-    print(c(C.BOLD, "  ║  ") + c(C.YELLOW + C.BOLD, f"  Skipped   : {skipped:<5}")   + c(C.BOLD, "         ║"))
-    print(c(C.BOLD, "  ║  ") + c(C.CYAN   + C.BOLD, f"  Rescanned : {rescanned:<5}") + c(C.BOLD, "         ║"))
-    print(c(C.BOLD, "  ║  ") + c(C.ORANGE + C.BOLD, f"  No Ping   : {no_ping:<5}")   + c(C.BOLD, "         ║"))
-    print(c(C.BOLD, "  ║  ") + c(C.RED    + C.BOLD, f"  Failed    : {failed:<5}")    + c(C.BOLD, "         ║"))
+    print(c(C.BOLD, "  ║  ") + c(C.GREEN  + C.BOLD, f"  Completed : {len(completed_ips):<5}") + c(C.BOLD, "         ║"))
+    print(c(C.BOLD, "  ║  ") + c(C.YELLOW + C.BOLD, f"  Skipped   : {len(skipped_ips):<5}")   + c(C.BOLD, "         ║"))
+    print(c(C.BOLD, "  ║  ") + c(C.CYAN   + C.BOLD, f"  Rescanned : {len(rescanned_ips):<5}") + c(C.BOLD, "         ║"))
+    print(c(C.BOLD, "  ║  ") + c(C.ORANGE + C.BOLD, f"  No Ping   : {len(no_ping_ips):<5}")   + c(C.BOLD, "         ║"))
+    print(c(C.BOLD, "  ║  ") + c(C.RED    + C.BOLD, f"  Failed    : {len(failed_ips):<5}")    + c(C.BOLD, "         ║"))
     print(c(C.BOLD, "  ╚══════════════════════════════╝"))
+
+    # ── Reconciliation — every input target must land in some audit log ───────
+    # This is the safety net: a target that isn't completed, skipped, logged as
+    # unreachable, or logged as failed has NO recorded outcome at all (e.g. the
+    # run was interrupted before reaching it). That must never pass silently.
+    accounted = completed_ips | skipped_ips | no_ping_ips | failed_ips
+    unaccounted = [ip for ip in ips if ip not in accounted]
+    print()
+    if unaccounted:
+        unaccounted_path = os.path.join(output_dir, "unaccounted.txt")
+        with open(unaccounted_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(unaccounted) + "\n")
+        sep(C.RED, "!")
+        print(c(C.RED + C.BOLD,
+                f"  [!] WARNING: {len(unaccounted)} target(s) have NO recorded outcome "
+                "(scan likely interrupted before reaching them):"))
+        for ip in unaccounted:
+            print(c(C.RED, f"      {ip}"))
+        print(c(C.RED, f"  [!] Saved to: {unaccounted_path}"))
+        print(c(C.RED, "  [!] Re-run with --resume to pick these up, or investigate before reporting results."))
+        sep(C.RED, "!")
+    else:
+        print(c(C.GREEN, f"  [+] Reconciliation OK — all {len(ips)} input target(s) are accounted for."))
 
     # ── Open ports table across all completed hosts ───────────────────────────
     host_ports = {}
     if os.path.exists(completed_file):
-        with open(completed_file) as f:
+        with open(completed_file, encoding="utf-8") as f:
             done_ips = [line.split("|")[-1].strip() for line in f if line.strip()]
         for ip in dict.fromkeys(done_ips):   # unique, preserve order
             fp = os.path.join(output_dir, f"{sanitize_filename(ip)}.txt")
@@ -1444,6 +1535,205 @@ def print_summary(completed_file, skipped_file, rescanned_file,
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+#  TERMINAL TAB SPLITTING
+#
+#  When an interactive run has a large pending target list, offer to split it
+#  across separate terminal tabs/windows instead of scanning everything, one
+#  host at a time, in this single window. Each tab gets its own target file
+#  and its own output subfolder (tab_1, tab_2, ...) so concurrent writers can
+#  never race on the same completed.txt / inventory files. A manifest mapping
+#  every target to its tab is always written to disk for the audit trail.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _build_tab_command(args):
+    """Rebuild the scanrunner invocation used for a spawned tab.
+
+    args.nmap_extra already has --profile/--exclude/--exclude-file folded in
+    by parse_args(), so passing it through covers all raw Nmap arguments.
+    Every remaining scanrunner-level flag that should carry over to the tab
+    is re-added explicitly. --yes is forced because prompts cannot sensibly
+    be answered across several independent windows; --no-auto-tabs prevents
+    a spawned tab from re-triggering this same prompt on its own sub-list.
+    """
+    cmd = [sys.executable, os.path.abspath(__file__)]
+    cmd.extend(args.nmap_extra)
+    if args.retries:
+        cmd.extend(["--retries", str(args.retries)])
+    if args.skip_ping:
+        cmd.append("--skip-ping")
+    if args.skip_no_ping:
+        cmd.append("-ok")
+    if args.no_color:
+        cmd.append("--no-color")
+    if args.scope_file:
+        cmd.extend(["--scope-file", args.scope_file])
+    if args.metadata_csv:
+        cmd.extend(["--metadata-csv", args.metadata_csv])
+    if args.html_report:
+        cmd.append("--html-report")
+    cmd.extend(["--yes", "--no-auto-tabs"])
+    return cmd
+
+
+def _spawn_windows_terminal(command, title, cwd):
+    wt = shutil.which("wt.exe") or shutil.which("wt")
+    if wt:
+        try:
+            subprocess.Popen([wt, "new-tab", "--title", title, "-d", cwd, "--", *command])
+            return True
+        except OSError:
+            pass
+    try:
+        # cmd /k keeps the window open after the scan finishes so results
+        # stay visible; start opens it as a separate window (best effort
+        # when Windows Terminal itself is unavailable).
+        quoted = subprocess.list2cmdline(command)
+        subprocess.Popen(f'start "{title}" cmd /k "{quoted}"', cwd=cwd, shell=True)
+        return True
+    except OSError:
+        return False
+
+
+def _spawn_macos_terminal(command, title, cwd):
+    script_command = " ".join(shlex.quote(part) for part in command)
+    apple_script = (
+        f'tell application "Terminal" to do script "cd {shlex.quote(cwd)} && {script_command}"'
+    )
+    try:
+        subprocess.Popen(["osascript", "-e", apple_script])
+        return True
+    except OSError:
+        return False
+
+
+def _spawn_linux_terminal(command, title, cwd):
+    if os.environ.get("TMUX"):
+        try:
+            subprocess.Popen(["tmux", "new-window", "-n", title, "-c", cwd, *command])
+            return True
+        except OSError:
+            pass
+    quoted_command = " ".join(shlex.quote(part) for part in command)
+    for terminal in ("x-terminal-emulator", "gnome-terminal", "konsole", "xfce4-terminal"):
+        path = shutil.which(terminal)
+        if not path:
+            continue
+        try:
+            if terminal == "gnome-terminal":
+                subprocess.Popen([path, "--title", title, "--working-directory", cwd, "--", *command])
+            else:
+                subprocess.Popen([path, "-e", quoted_command], cwd=cwd)
+            return True
+        except OSError:
+            continue
+    xterm = shutil.which("xterm")
+    if xterm:
+        try:
+            subprocess.Popen([xterm, "-T", title, "-e", *command], cwd=cwd)
+            return True
+        except OSError:
+            pass
+    return False
+
+
+def _spawn_background(command, cwd, log_path):
+    """Last-resort fallback when no terminal emulator can be opened.
+
+    Never silently drops a batch of targets: if we can't give it a visible
+    tab, it still runs, in the background, with its own log file to watch.
+    """
+    with open(log_path, "w", encoding="utf-8") as log_file:
+        subprocess.Popen(command, cwd=cwd, stdout=log_file, stderr=subprocess.STDOUT)
+
+
+def offer_terminal_tabs(args, pending_ips, output_dir):
+    """Offer to split a large pending list across separate terminal tabs.
+
+    Returns True if tabs were launched (caller should stop; this window does
+    not scan anything itself), False if the caller should continue normally.
+    """
+    if (args.no_auto_tabs or args.yes or not sys.stdin.isatty()
+            or args.parallel > 1 or len(pending_ips) < AUTO_TAB_PROMPT_THRESHOLD):
+        return False
+
+    print(c(C.CYAN + C.BOLD,
+            f"\n  [*] Large target list detected: {len(pending_ips)} targets pending."))
+    answer = safe_input(
+        c(C.CYAN, f"  Split across separate terminal tabs? Enter number of tabs "
+                   f"(2-{len(pending_ips)}), or press Enter to continue in this window: ")
+    )
+    if not answer:
+        return False
+    try:
+        tab_count = int(answer)
+    except ValueError:
+        print(c(C.RED, "  [!] Not a number — continuing in this window.\n"))
+        return False
+    if tab_count < 2 or tab_count > len(pending_ips):
+        print(c(C.RED,
+                f"  [!] Enter a number from 2 to {len(pending_ips)} — continuing in this window.\n"))
+        return False
+
+    tabs_dir = os.path.join(output_dir, "tabs")
+    os.makedirs(tabs_dir, exist_ok=True)
+    base_size, remainder = divmod(len(pending_ips), tab_count)
+    base_command = _build_tab_command(args)
+    cwd = os.getcwd()
+    manifest_lines = []
+    spawned = backgrounded = 0
+    offset = 0
+
+    for index in range(1, tab_count + 1):
+        size = base_size + (1 if index <= remainder else 0)
+        part_targets = pending_ips[offset:offset + size]
+        offset += size
+        if not part_targets:
+            continue
+
+        part_file = os.path.join(tabs_dir, f"tab_{index}_targets.txt")
+        with open(part_file, "w", encoding="utf-8") as f:
+            f.write("\n".join(part_targets) + "\n")
+
+        tab_output_dir = os.path.join(output_dir, f"tab_{index}")
+        os.makedirs(tab_output_dir, exist_ok=True)
+        command = [*base_command, "-f", part_file, "-o", tab_output_dir]
+        title = f"scanrunner tab {index}/{tab_count}"
+
+        if sys.platform == "win32":
+            launched = _spawn_windows_terminal(command, title, cwd)
+        elif sys.platform == "darwin":
+            launched = _spawn_macos_terminal(command, title, cwd)
+        else:
+            launched = _spawn_linux_terminal(command, title, cwd)
+
+        if launched:
+            spawned += 1
+        else:
+            log_path = os.path.join(tab_output_dir, "console.log")
+            _spawn_background(command, cwd, log_path)
+            backgrounded += 1
+            print(c(C.YELLOW,
+                    f"  [~] No terminal emulator found for tab {index}; "
+                    f"running in background instead. Watch: {log_path}"))
+
+        manifest_lines.append(f"tab_{index}\t{tab_output_dir}\t{','.join(part_targets)}")
+
+    manifest_path = os.path.join(output_dir, "tab-manifest.txt")
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(manifest_lines) + "\n")
+
+    print(c(C.GREEN + C.BOLD,
+            f"\n  [+] Launched {tab_count} tab(s): {spawned} in terminal windows, "
+            f"{backgrounded} running in background."))
+    print(c(C.CYAN, f"  [i] Each tab writes its own reports under {output_dir}/tab_<N>/."))
+    print(c(C.CYAN, f"  [i] Target-to-tab manifest saved: {manifest_path}"))
+    print(c(C.YELLOW,
+            "  [!] This window is not tracking their progress. When they finish, check "
+            "each tab_<N>/ folder's own summary and unaccounted.txt before reporting results.\n"))
+    return True
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 #  MAIN
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -1454,7 +1744,7 @@ def main():
     COLORS_ENABLED = not args.no_color
     banner()
 
-    if args.split is not None:
+    if args.split is not None or args.split_size is not None:
         if not os.path.exists(args.file):
             print(c(C.RED + C.BOLD, f"  [!] File not found: {args.file}"))
             sys.exit(1)
@@ -1462,7 +1752,14 @@ def main():
         if not targets:
             print(c(C.RED + C.BOLD, "  [!] Target file contains no usable targets."))
             sys.exit(1)
-        split_target_file(args.file, targets, args.split)
+        if args.split_size is not None:
+            parts = -(-len(targets) // args.split_size)   # ceil division
+            print(c(C.DIM,
+                    f"  [i] {len(targets)} target(s) ÷ {args.split_size} per file "
+                    f"= {parts} file(s)."))
+        else:
+            parts = args.split
+        split_target_file(args.file, targets, parts)
         return
 
     if args.nxc:
@@ -1565,7 +1862,7 @@ def main():
     if os.path.exists(completed_file) or args.resume:
         all_done = set()
         if os.path.exists(completed_file):
-            with open(completed_file) as f:
+            with open(completed_file, encoding="utf-8") as f:
                 all_done = {line.split("|")[-1].strip() for line in f if line.strip()}
         all_done.update(ip for ip in ips
                         if get_file_status(os.path.join(output_dir, f"{sanitize_filename(ip)}.txt")) == "COMPLETE")
@@ -1573,14 +1870,25 @@ def main():
             print(c(C.BLUE + C.BOLD, f"  Found {len(all_done)} previously completed IP(s)."))
             if args.resume:
                 completed_ips = all_done
+                # Backfill completed_file: all_done also includes hosts detected
+                # purely by inspecting existing report files, which may never
+                # have been logged. The audit trail (and the end-of-run
+                # reconciliation check) must be able to account for every one.
+                for ip in completed_ips:
+                    log_to_file(completed_file, ip)
                 print(c(C.GREEN,
                         f"  [+] Resuming — {len(completed_ips)} IP(s) will be skipped.\n"))
             else:
-                ch = safe_input(
-                    c(C.CYAN, "  [r] Resume (skip completed)  [f] Fresh (review all)  -> ")
-                ).lower()
+                if args.yes:
+                    ch = "f"
+                else:
+                    ch = safe_input(
+                        c(C.CYAN, "  [r] Resume (skip completed)  [f] Fresh (review all)  -> ")
+                    ).lower()
                 if ch == "r":
                     completed_ips = all_done
+                    for ip in completed_ips:
+                        log_to_file(completed_file, ip)
                     print(c(C.GREEN,
                             f"  [+] Resuming — {len(completed_ips)} IP(s) will be skipped.\n"))
                 else:
@@ -1592,8 +1900,11 @@ def main():
     if total_pending == 0:
         print(c(C.GREEN, "  [+] All IPs already completed. Nothing to do."))
         write_reports()
-        print_summary(completed_file, skipped_file, rescanned_file,
+        print_summary(ips, completed_file, skipped_file, rescanned_file,
                       not_ping_file, failed_file, output_dir)
+        return
+
+    if offer_terminal_tabs(args, pending_ips, output_dir):
         return
 
     print(c(C.CYAN + C.BOLD, f"  [*] {total_pending} IP(s) queued.\n"))
@@ -1627,7 +1938,7 @@ def main():
                     log_to_file(failed_file, ip)
                     print(c(C.RED, f"  [x] Failed {ip} after {attempts} attempt(s)"))
         write_reports()
-        print_summary(completed_file, skipped_file, rescanned_file,
+        print_summary(ips, completed_file, skipped_file, rescanned_file,
                       not_ping_file, failed_file, output_dir)
         return
 
@@ -1687,7 +1998,7 @@ def main():
                     elif ch == "q":
                         print(c(C.RED + C.BOLD, "\n  Quitting."))
                         restore_terminal()
-                        print_summary(completed_file, skipped_file, rescanned_file,
+                        print_summary(ips, completed_file, skipped_file, rescanned_file,
                                       not_ping_file, failed_file, output_dir)
                         sys.exit(0)
                     else:
@@ -1750,7 +2061,7 @@ def main():
 
             # ── Run scan ─────────────────────────────────────────────────────
             print(c(C.MAGENTA + C.BOLD, f"\n  [>] Scanning {ip}"))
-            if sys.stdin.isatty():
+            if sys.stdin.isatty() and RAW_MODE_SUPPORTED:
                 print(c(C.DIM,
                         "      Space = status   "
                         "Ctrl+X = skip host   "
@@ -1799,7 +2110,7 @@ def main():
     # Final progress bar — 100% when we get here
     progress_bar(done_count, total_pending)
     write_reports()
-    print_summary(completed_file, skipped_file, rescanned_file,
+    print_summary(ips, completed_file, skipped_file, rescanned_file,
                   not_ping_file, failed_file, output_dir)
 
 
