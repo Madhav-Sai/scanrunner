@@ -428,6 +428,10 @@ Automation options:
   --resume               Skip targets with completed reports
   -ok, --skip-no-ping    Skip and log wrapper ping failures without prompting
   --parallel N           Run N non-interactive scans concurrently (requires --yes)
+  --tabs N               Split targets across N terminal tabs right away, no
+                          prompt, even below the 20-target auto-prompt threshold
+  --no-auto-tabs         Never offer to split into tabs; always scan one host
+                          at a time in this window
   --retries N            Retry failed scans N times
   --scope-file FILE      Refuse targets outside the authorized scope
 
@@ -453,6 +457,8 @@ OPTION_HELP = {
     "scope-file": "--scope-file FILE\nAllowlist authorized hosts/CIDRs; targets outside it are refused.\nExample: scanrunner -f targets.txt --scope-file authorized.txt -sV",
     "retries": "--retries N\nRetry failed Nmap scans up to N additional times. Default: 0.\nExample: scanrunner -f targets.txt --retries 2 -sV",
     "parallel": "--parallel N\nRun up to N Nmap scans concurrently. Requires --yes.\nExample: scanrunner -f targets.txt --yes --parallel 4 -sV",
+    "tabs": "--tabs N\nSplit targets across N terminal tabs immediately — skips the interactive prompt and works even below the 20-target auto-prompt threshold (e.g. a 5-target file). Mutually exclusive with --parallel and --no-auto-tabs.\nExample: scanrunner -f targets.txt --tabs 3 -sV",
+    "no-auto-tabs": "--no-auto-tabs\nNever offer to split into terminal tabs, no matter how large the target list — always scan one host at a time in this window.\nExample: scanrunner -f targets.txt --no-auto-tabs -sV",
     "metadata-csv": "--metadata-csv FILE\nAdd owner/environment data to the CSV/JSON inventory; FILE needs a target column.\nExample: scanrunner -f targets.txt --metadata-csv assets.csv -sV",
     "html-report": "--html-report\nCreate open-ports-report.html in the output directory.\nExample: scanrunner -f targets.txt --html-report -sV",
 }
@@ -465,6 +471,7 @@ OPTION_ALIASES = {
     "-ok": "skip-no-ping", "--skip-no-ping": "skip-no-ping", "skip-no-ping": "skip-no-ping",
     "--no-color": "no-color", "no-color": "no-color", "--scope-file": "scope-file", "scope-file": "scope-file",
     "--retries": "retries", "retries": "retries", "--parallel": "parallel", "parallel": "parallel",
+    "--tabs": "tabs", "tabs": "tabs", "--no-auto-tabs": "no-auto-tabs", "no-auto-tabs": "no-auto-tabs",
     "--metadata-csv": "metadata-csv", "metadata-csv": "metadata-csv", "--html-report": "html-report", "html-report": "html-report",
 }
 
@@ -502,7 +509,7 @@ def completion_script(shell):
         "--split", "--split-size", "--profile", "--template", "--preset", "--exclude",
         "--exclude-file", "-nxc", "--nxc", "--nxc-query", "--yes",
         "--resume", "--skip-ping", "-ok", "--skip-no-ping", "--no-color",
-        "--scope-file", "--retries", "--parallel", "-o", "--output",
+        "--scope-file", "--retries", "--parallel", "--tabs", "--no-auto-tabs", "-o", "--output",
         "--metadata-csv", "--html-report", "--list-templates", "--help-all",
         "--nmap", "--reports", "--nxc-native-help", "--completion",
     ]
@@ -679,8 +686,12 @@ def parse_args():
                         help="Retry failed scans up to N times")
     workflow_group.add_argument("--parallel", type=int, default=1, metavar="N",
                                 help="Run up to N non-interactive scans concurrently")
+    workflow_group.add_argument("--tabs", type=int, default=None, metavar="N",
+                                help="Split targets across N terminal tabs immediately "
+                                     "(skips the interactive prompt and the 20-target threshold)")
     workflow_group.add_argument("--no-auto-tabs", action="store_true",
-                                help=argparse.SUPPRESS)
+                                help="Never offer to split into terminal tabs; always scan "
+                                     "one host at a time in this window")
 
     report_group = parser.add_argument_group("Output and reporting")
     report_group.add_argument("-o", "--output", metavar="DIR", default=None,
@@ -697,6 +708,13 @@ def parse_args():
     # e.g. --script-args "user=admin pass=hi" becomes two broken tokens.
     if args.retries < 0 or args.parallel < 1:
         parser.error("--retries must be zero or greater and --parallel must be at least 1")
+    if args.tabs is not None:
+        if args.tabs < 2:
+            parser.error("--tabs must be at least 2")
+        if args.parallel > 1:
+            parser.error("--tabs and --parallel are different concurrency modes — use only one")
+        if args.no_auto_tabs:
+            parser.error("--tabs and --no-auto-tabs contradict each other — use only one")
     if args.split is not None and args.split_size is not None:
         parser.error("use only one of --split or --split-size")
     if args.split is not None:
@@ -1719,6 +1737,9 @@ def offer_terminal_tabs(args, pending_ips, output_dir):
 
     Returns True if tabs were launched (caller should stop; this window does
     not scan anything itself), False if the caller should continue normally.
+    Use --tabs N instead to split without this prompt, at any list size, and
+    --no-auto-tabs to make sure this prompt never fires (e.g. a big list you
+    always want to run one host at a time in this window).
     """
     if (args.no_auto_tabs or args.yes or not sys.stdin.isatty()
             or args.parallel > 1 or len(pending_ips) < AUTO_TAB_PROMPT_THRESHOLD):
@@ -1742,6 +1763,16 @@ def offer_terminal_tabs(args, pending_ips, output_dir):
                 f"  [!] Enter a number from 2 to {len(pending_ips)} — continuing in this window.\n"))
         return False
 
+    _launch_tabs(args, pending_ips, output_dir, tab_count)
+    return True
+
+
+def _launch_tabs(args, pending_ips, output_dir, tab_count):
+    """Split pending_ips into tab_count parts and spawn a scanrunner tab for each.
+
+    Shared by the interactive prompt (offer_terminal_tabs) and the explicit
+    --tabs N flag. Caller is responsible for validating tab_count first.
+    """
     tabs_dir = os.path.join(output_dir, "tabs")
     os.makedirs(tabs_dir, exist_ok=True)
     base_size, remainder = divmod(len(pending_ips), tab_count)
@@ -2056,6 +2087,15 @@ def main():
         write_reports()
         print_summary(ips, completed_file, skipped_file, rescanned_file,
                       not_ping_file, failed_file, output_dir)
+        return
+
+    if args.tabs is not None:
+        if args.tabs > total_pending:
+            print(c(C.RED,
+                    f"  [!] --tabs {args.tabs} exceeds the {total_pending} pending target(s) "
+                    f"— enter a number from 2 to {total_pending}."))
+            sys.exit(1)
+        _launch_tabs(args, pending_ips, output_dir, args.tabs)
         return
 
     if offer_terminal_tabs(args, pending_ips, output_dir):

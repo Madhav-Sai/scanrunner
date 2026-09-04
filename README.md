@@ -368,13 +368,33 @@ Split across separate terminal tabs? Enter number of tabs (2-84), or press Enter
 
 Press Enter to decline and keep scanning normally, or enter a tab count to
 launch that many independent scanrunner processes — each with its own target
-file and its own output subfolder (`tab_1/`, `tab_2/`, ...), so concurrent
-tabs never race on the same report files. A `tab-manifest.txt` in the main
-output folder records exactly which targets went to which tab. If no terminal
-emulator can be opened (for example, a headless shell), that tab runs in the
-background instead, with its own `console.log` to watch — a batch of targets
-is never silently dropped. This prompt only appears on a real interactive
-terminal; it never fires under `--yes`, `--parallel`, or piped/non-tty input.
+list, but all writing their reports straight into the same output folder
+(safe because every report is named after its own IP, so tabs never collide).
+A `tab-manifest.txt` and each tab's target-list file live under
+`<output>/tabs/`, recording exactly which targets went to which tab. If no
+terminal emulator can be opened (for example, a headless shell), that tab
+runs in the background instead, with its own console log under
+`<output>/tabs/` to watch — a batch of targets is never silently dropped.
+
+This window doesn't just launch and walk away — it stays open and shows a
+live, self-updating dashboard of combined progress across every tab
+(percent complete, completed/skipped/failed/no-ping/retried counts, and open
+ports found so far), refreshed every few seconds by reading the shared
+report and log files. Press Ctrl+C to stop watching without killing the
+tabs; they keep scanning either way.
+
+The prompt only appears on a real interactive terminal; it never fires under
+`--yes`, `--parallel`, or piped/non-tty input. Two flags give you direct
+control instead of waiting for the prompt:
+
+- **`--tabs N`** — split into `N` tabs immediately, skipping the prompt
+  entirely. This also works below the 20-target threshold, so a 5-target
+  file can still be split if you want it to: `--tabs 2` on a 5-IP file gives
+  you two tabs of 2-3 targets each. Mutually exclusive with `--parallel` and
+  `--no-auto-tabs`.
+- **`--no-auto-tabs`** — the opposite: never offer to split, no matter how
+  large the list. A 100-target file with this flag just scans one host at a
+  time in the current window, same as any small list.
 
 ---
 
