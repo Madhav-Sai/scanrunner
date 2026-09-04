@@ -247,15 +247,17 @@ class TerminalTabTests(unittest.TestCase):
                 part_file = os.path.join(output_dir, "tabs", f"tab_{index}_targets.txt")
                 self.assertTrue(os.path.exists(part_file))
 
-            # Spawned command must force --yes/--no-auto-tabs and never leak
-            # into a shared output directory across tabs.
+            # Spawned command must force --yes/--no-auto-tabs, and every tab
+            # must write directly into the single shared output_dir so scan
+            # reports all land in one place instead of fragmenting into
+            # per-tab subfolders.
             spawned_mock = next(m for m in (win_spawn, mac_spawn, linux_spawn) if m.call_count)
             command = spawned_mock.call_args_list[0][0][0]
             self.assertIn("--yes", command)
             self.assertIn("--no-auto-tabs", command)
             output_dirs_used = {command_call[0][0][command_call[0][0].index("-o") + 1]
                                 for command_call in spawned_mock.call_args_list}
-            self.assertEqual(len(output_dirs_used), 3)
+            self.assertEqual(output_dirs_used, {output_dir})
 
     def test_falls_back_to_background_when_no_terminal_available(self):
         pending = [f"10.0.0.{i}" for i in range(30)]

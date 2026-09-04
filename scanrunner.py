@@ -169,6 +169,45 @@ def log_to_file(filename, data):
     with open(filename, "a", encoding="utf-8") as f:
         f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | {data}\n")
 
+
+class _FileLock:
+    """Advisory lock for a shared file, based on atomic exclusive file creation.
+
+    Several scanrunner processes (e.g. spawned terminal tabs) may write into
+    the same output directory at once. Per-host report files never collide
+    (each is named after its own IP), but files that get rewritten wholesale
+    — the inventory CSV/JSON — need to be serialized so one process's write
+    can't clobber another's. A stale lock from a crashed process is stolen
+    after `timeout` seconds rather than blocking forever.
+    """
+    def __init__(self, path, timeout=30):
+        self.lock_path = path + ".lock"
+        self.timeout = timeout
+        self._fd = None
+
+    def __enter__(self):
+        deadline = time.time() + self.timeout
+        while True:
+            try:
+                self._fd = os.open(self.lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                return self
+            except FileExistsError:
+                if time.time() > deadline:
+                    try:
+                        os.remove(self.lock_path)
+                    except OSError:
+                        pass
+                    continue
+                time.sleep(0.05)
+
+    def __exit__(self, *exc_info):
+        if self._fd is not None:
+            os.close(self._fd)
+        try:
+            os.remove(self.lock_path)
+        except OSError:
+            pass
+
 def read_logged_ips(path):
     """Return the set of unique targets recorded in an audit-log file."""
     if not os.path.exists(path):
@@ -1422,13 +1461,19 @@ def print_open_ports_oneliner(ip, filepath):
 
 
 def write_inventory(output_dir, targets, metadata, write_html):
-    """Write machine-readable port inventory files from completed normal output."""
-    rows = []
+    """Write machine-readable port inventory files from completed normal output.
+
+    Merges into any existing inventory rather than overwriting it outright:
+    when several scanrunner processes (spawned terminal tabs) share one
+    output directory, each only knows its own slice of targets, so a plain
+    overwrite would erase whatever the other processes already wrote.
+    """
+    new_rows = []
     for target in targets:
         details = metadata.get(target, {})
         report = os.path.join(output_dir, f"{sanitize_filename(target)}.txt")
         for port in parse_open_ports(report):
-            rows.append({
+            new_rows.append({
                 "target": target,
                 "owner": details.get("owner", ""),
                 "environment": details.get("environment", ""),
@@ -1436,28 +1481,42 @@ def write_inventory(output_dir, targets, metadata, write_html):
             })
 
     csv_path = os.path.join(output_dir, "open-ports-inventory.csv")
-    with open(csv_path, "w", newline="", encoding="utf-8") as file:
-        writer = csv.DictWriter(file, fieldnames=["target", "owner", "environment", "port_service"])
-        writer.writeheader()
-        writer.writerows(rows)
-    with open(os.path.join(output_dir, "open-ports-inventory.json"), "w", encoding="utf-8") as file:
-        json.dump(rows, file, indent=2)
+    json_path = os.path.join(output_dir, "open-ports-inventory.json")
+    targets_set = set(targets)
 
-    if write_html:
-        body = "\n".join(
-            "<tr>" + "".join(f"<td>{html.escape(row[column])}</td>"
-                              for column in ("target", "owner", "environment", "port_service")) + "</tr>"
-            for row in rows
-        ) or "<tr><td colspan=\"4\">No open ports found.</td></tr>"
-        report = (
-            "<!doctype html><meta charset=\"utf-8\"><title>Scanrunner Inventory</title>"
-            "<style>body{font-family:system-ui;margin:2rem}table{border-collapse:collapse}"
-            "th,td{border:1px solid #ccc;padding:.5rem;text-align:left}</style>"
-            "<h1>Scanrunner Open-Port Inventory</h1><table><tr><th>Target</th><th>Owner</th>"
-            f"<th>Environment</th><th>Port / Service</th></tr>{body}</table>"
-        )
-        with open(os.path.join(output_dir, "open-ports-report.html"), "w", encoding="utf-8") as file:
-            file.write(report)
+    with _FileLock(csv_path):
+        rows = []
+        if os.path.exists(json_path):
+            try:
+                with open(json_path, encoding="utf-8") as file:
+                    rows = json.load(file)
+            except (json.JSONDecodeError, OSError):
+                rows = []
+        rows = [row for row in rows if row.get("target") not in targets_set]
+        rows.extend(new_rows)
+
+        with open(csv_path, "w", newline="", encoding="utf-8") as file:
+            writer = csv.DictWriter(file, fieldnames=["target", "owner", "environment", "port_service"])
+            writer.writeheader()
+            writer.writerows(rows)
+        with open(json_path, "w", encoding="utf-8") as file:
+            json.dump(rows, file, indent=2)
+
+        if write_html:
+            body = "\n".join(
+                "<tr>" + "".join(f"<td>{html.escape(row[column])}</td>"
+                                  for column in ("target", "owner", "environment", "port_service")) + "</tr>"
+                for row in rows
+            ) or "<tr><td colspan=\"4\">No open ports found.</td></tr>"
+            report = (
+                "<!doctype html><meta charset=\"utf-8\"><title>Scanrunner Inventory</title>"
+                "<style>body{font-family:system-ui;margin:2rem}table{border-collapse:collapse}"
+                "th,td{border:1px solid #ccc;padding:.5rem;text-align:left}</style>"
+                "<h1>Scanrunner Open-Port Inventory</h1><table><tr><th>Target</th><th>Owner</th>"
+                f"<th>Environment</th><th>Port / Service</th></tr>{body}</table>"
+            )
+            with open(os.path.join(output_dir, "open-ports-report.html"), "w", encoding="utf-8") as file:
+                file.write(report)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1492,8 +1551,13 @@ def print_summary(ips, completed_file, skipped_file, rescanned_file,
     print()
     if unaccounted:
         unaccounted_path = os.path.join(output_dir, "unaccounted.txt")
-        with open(unaccounted_path, "w", encoding="utf-8") as f:
-            f.write("\n".join(unaccounted) + "\n")
+        with _FileLock(unaccounted_path):
+            existing = set()
+            if os.path.exists(unaccounted_path):
+                with open(unaccounted_path, encoding="utf-8") as f:
+                    existing = {line.strip() for line in f if line.strip()}
+            with open(unaccounted_path, "w", encoding="utf-8") as f:
+                f.write("\n".join(sorted(existing | set(unaccounted))) + "\n")
         sep(C.RED, "!")
         print(c(C.RED + C.BOLD,
                 f"  [!] WARNING: {len(unaccounted)} target(s) have NO recorded outcome "
@@ -1540,9 +1604,13 @@ def print_summary(ips, completed_file, skipped_file, rescanned_file,
 #  When an interactive run has a large pending target list, offer to split it
 #  across separate terminal tabs/windows instead of scanning everything, one
 #  host at a time, in this single window. Each tab gets its own target file
-#  and its own output subfolder (tab_1, tab_2, ...) so concurrent writers can
-#  never race on the same completed.txt / inventory files. A manifest mapping
-#  every target to its tab is always written to disk for the audit trail.
+#  (under output_dir/tabs/) but all tabs write their scan reports straight
+#  into the shared output_dir, since per-host filenames are unique by IP and
+#  never collide. The files that get rewritten wholesale instead of appended
+#  (the inventory CSV/JSON, unaccounted.txt) are merged under a file lock
+#  (see _FileLock) so one tab finishing can't clobber another's results. A
+#  manifest mapping every target to its tab is always written to disk for
+#  the audit trail.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _build_tab_command(args):
@@ -1694,9 +1762,7 @@ def offer_terminal_tabs(args, pending_ips, output_dir):
         with open(part_file, "w", encoding="utf-8") as f:
             f.write("\n".join(part_targets) + "\n")
 
-        tab_output_dir = os.path.join(output_dir, f"tab_{index}")
-        os.makedirs(tab_output_dir, exist_ok=True)
-        command = [*base_command, "-f", part_file, "-o", tab_output_dir]
+        command = [*base_command, "-f", part_file, "-o", output_dir]
         title = f"scanrunner tab {index}/{tab_count}"
 
         if sys.platform == "win32":
@@ -1709,14 +1775,14 @@ def offer_terminal_tabs(args, pending_ips, output_dir):
         if launched:
             spawned += 1
         else:
-            log_path = os.path.join(tab_output_dir, "console.log")
+            log_path = os.path.join(tabs_dir, f"tab_{index}_console.log")
             _spawn_background(command, cwd, log_path)
             backgrounded += 1
             print(c(C.YELLOW,
                     f"  [~] No terminal emulator found for tab {index}; "
                     f"running in background instead. Watch: {log_path}"))
 
-        manifest_lines.append(f"tab_{index}\t{tab_output_dir}\t{','.join(part_targets)}")
+        manifest_lines.append(f"tab_{index}\t{output_dir}\t{','.join(part_targets)}")
 
     manifest_path = os.path.join(output_dir, "tab-manifest.txt")
     with open(manifest_path, "w", encoding="utf-8") as f:
@@ -1725,11 +1791,11 @@ def offer_terminal_tabs(args, pending_ips, output_dir):
     print(c(C.GREEN + C.BOLD,
             f"\n  [+] Launched {tab_count} tab(s): {spawned} in terminal windows, "
             f"{backgrounded} running in background."))
-    print(c(C.CYAN, f"  [i] Each tab writes its own reports under {output_dir}/tab_<N>/."))
+    print(c(C.CYAN, f"  [i] All tabs write their reports directly into {output_dir}/."))
     print(c(C.CYAN, f"  [i] Target-to-tab manifest saved: {manifest_path}"))
     print(c(C.YELLOW,
             "  [!] This window is not tracking their progress. When they finish, check "
-            "each tab_<N>/ folder's own summary and unaccounted.txt before reporting results.\n"))
+            f"{output_dir}/unaccounted.txt and the open-ports inventory before reporting results.\n"))
     return True
 
 
