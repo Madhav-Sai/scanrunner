@@ -1793,10 +1793,98 @@ def offer_terminal_tabs(args, pending_ips, output_dir):
             f"{backgrounded} running in background."))
     print(c(C.CYAN, f"  [i] All tabs write their reports directly into {output_dir}/."))
     print(c(C.CYAN, f"  [i] Target-to-tab manifest saved: {manifest_path}"))
-    print(c(C.YELLOW,
-            "  [!] This window is not tracking their progress. When they finish, check "
-            f"{output_dir}/unaccounted.txt and the open-ports inventory before reporting results.\n"))
+
+    _watch_tab_progress(output_dir, pending_ips)
     return True
+
+
+def _watch_tab_progress(output_dir, pending_ips, poll_interval=3):
+    """Live-poll the shared output files and render an aggregate dashboard.
+
+    All spawned tabs write completed.txt/skipped.txt/failed.txt/etc. and per-
+    host reports into the same output_dir this window already knows about, so
+    overall progress can be read back without any inter-process signaling.
+    Redraws in place; Ctrl+C detaches (the tabs keep scanning) rather than
+    killing anything.
+    """
+    if not sys.stdout.isatty():
+        print(c(C.YELLOW,
+                "  [!] Not an interactive terminal — not tracking tab progress here. "
+                f"Check {output_dir}/unaccounted.txt and the open-ports inventory when done.\n"))
+        return
+
+    completed_file = os.path.join(output_dir, "completed.txt")
+    skipped_file   = os.path.join(output_dir, "skipped.txt")
+    failed_file    = os.path.join(output_dir, "failed.txt")
+    not_ping_file  = os.path.join(output_dir, "not-pingip.txt")
+    retry_file     = os.path.join(output_dir, "retried.txt")
+
+    total = len(pending_ips)
+    pending_set = set(pending_ips)
+
+    print(c(C.CYAN,
+            "\n  [*] Watching combined progress across all tabs — "
+            "Ctrl+C stops watching, tabs keep scanning.\n"))
+
+    lines_printed = 0
+    try:
+        while True:
+            completed = read_logged_ips(completed_file) & pending_set
+            skipped   = read_logged_ips(skipped_file)   & pending_set
+            failed    = read_logged_ips(failed_file)    & pending_set
+            no_ping   = read_logged_ips(not_ping_file)  & pending_set
+            retried   = read_logged_ips(retry_file)     & pending_set
+            accounted = completed | skipped | failed | no_ping
+            remaining = total - len(accounted)
+
+            open_port_hosts = open_port_total = 0
+            for ip in completed:
+                ports = parse_open_ports(os.path.join(output_dir, f"{sanitize_filename(ip)}.txt"))
+                if ports:
+                    open_port_hosts += 1
+                    open_port_total += len(ports)
+
+            done_frac = (len(accounted) / total) if total else 1.0
+            filled    = int(30 * done_frac)
+            bar       = "█" * filled + "░" * (30 - filled)
+
+            block = [
+                c(C.BOLD, f"  Progress  [{c(C.CYAN, bar)}{C.BOLD}]  ") +
+                c(C.YELLOW + C.BOLD, f"{done_frac * 100:.1f}%") +
+                c(C.DIM, f"  ({len(accounted)}/{total} accounted for)"),
+                "  " +
+                c(C.GREEN  + C.BOLD, f"Completed: {len(completed):<5}") +
+                c(C.YELLOW + C.BOLD, f"  Skipped: {len(skipped):<5}") +
+                c(C.RED    + C.BOLD, f"  Failed: {len(failed):<5}"),
+                "  " +
+                c(C.ORANGE + C.BOLD, f"No Ping: {len(no_ping):<5}") +
+                c(C.CYAN   + C.BOLD, f"  Retried: {len(retried):<5}") +
+                c(C.DIM,             f"  Running/Queued: {max(remaining, 0):<5}"),
+                c(C.GREEN, f"  Open ports so far: {open_port_total} across {open_port_hosts} host(s)"),
+                "",
+            ]
+
+            if lines_printed:
+                sys.stdout.write(f"\033[{lines_printed}A")
+            for line in block:
+                sys.stdout.write("\033[2K" + line + "\n")
+            sys.stdout.flush()
+            lines_printed = len(block)
+
+            if len(accounted) >= total:
+                break
+            time.sleep(poll_interval)
+    except KeyboardInterrupt:
+        print(c(C.YELLOW,
+                "\n  [~] Stopped watching — tabs are still running in the background. "
+                f"Re-check {output_dir}/ any time.\n"))
+        return
+
+    print(c(C.GREEN + C.BOLD, "  [+] All tabs finished."))
+    unaccounted_path = os.path.join(output_dir, "unaccounted.txt")
+    if os.path.exists(unaccounted_path):
+        print(c(C.RED, f"  [!] Some targets were unaccounted for — see {unaccounted_path}"))
+    print()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
