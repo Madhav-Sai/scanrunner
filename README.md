@@ -607,6 +607,13 @@ python3 scanrunner.py -f targets.txt -nxc smb --nxc-query null-auth
 python3 scanrunner.py -f targets.txt -nxc rdp --nxc-query rdp-nla
 ```
 
+The default terminal/CSV/JSON table has three columns — `IP`, `HOSTNAME`,
+`OS` — colorized for quick scanning: the IP in cyan, the OS in yellow, and
+(when you add fields with `--nxc-query`) security-relevant booleans colored
+by what they mean rather than uniformly — SMBv1 enabled, signing disabled,
+RDP without NLA, and a successful null-auth attempt are red findings; their
+safe counterparts are green.
+
 Focused fields are `os`, `hostname`, `smbv1`, `smb-signing`, `null-auth`, and
 `rdp-nla`; `--nxc-query all` shows every field. NetExec options and modules are
 not restricted by scanrunner, so use only those authorized for your engagement.

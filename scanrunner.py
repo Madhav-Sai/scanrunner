@@ -337,6 +337,9 @@ Examples:
 
 scanrunner passes all remaining options to NetExec and saves raw output, CSV,
 and JSON tables. For protocol-specific NetExec options, run: nxc <protocol> --help
+Default table columns: IP, HOSTNAME, OS. Add --nxc-query to add fields —
+SMBv1 enabled, signing disabled, RDP without NLA, and successful null auth
+are highlighted in red as findings; their safe counterparts in green.
 Focused table fields: os, hostname, smbv1, smb-signing, null-auth, rdp-nla, all.
 """,
     "templates": """Nmap templates help
@@ -967,13 +970,12 @@ def parse_nxc_output(output, targets, null_auth_attempt=False):
 
 def nxc_table_columns(protocol, queries):
     if not queries:
-        return [("target", "Target"), ("port", "Port"), ("hostname", "Hostname"),
-                ("details", "Details")]
+        return [("target", "IP"), ("hostname", "HOSTNAME"), ("os", "OS")]
     if "all" in queries:
         queries = ["os", "hostname", "smbv1", "smb-signing", "null-auth", "rdp-nla"]
-    columns = [("target", "Target")]
+    columns = [("target", "IP")]
     fields = {
-        "os": ("os", "OS"), "hostname": ("hostname", "Hostname"),
+        "os": ("os", "OS"), "hostname": ("hostname", "HOSTNAME"),
         "smbv1": ("smbv1", "SMBv1"), "smb-signing": ("smb_signing", "SMB Signing"),
         "null-auth": ("null_auth", "Null Auth"), "rdp-nla": ("rdp_nla", "RDP NLA"),
     }
@@ -984,20 +986,46 @@ def nxc_table_columns(protocol, queries):
     return columns
 
 
+# Per-field color, keyed by field name and (lowercased) cell value. "*" is the
+# fallback color for a field when the value doesn't match a listed key. Fields
+# not listed here fall back to plain white. True/False are colored by their
+# security meaning rather than uniformly, since that's what a reader is
+# actually scanning the table for: SMBv1 enabled or signing disabled is a
+# finding (red), NLA enabled or signing enforced is not (green).
+_NXC_CELL_COLORS = {
+    "target":      {"*": C.CYAN + C.BOLD},
+    "hostname":    {"*": C.WHITE},
+    "os":          {"*": C.YELLOW},
+    "smbv1":       {"true": C.RED + C.BOLD, "false": C.GREEN, "*": C.DIM},
+    "smb_signing": {"true": C.GREEN, "false": C.RED + C.BOLD, "*": C.DIM},
+    "rdp_nla":     {"true": C.GREEN, "false": C.RED + C.BOLD, "*": C.DIM},
+    "null_auth":   {"success": C.RED + C.BOLD, "*": C.DIM},
+}
+
+
+def _nxc_cell_color(field, value):
+    colors = _NXC_CELL_COLORS.get(field)
+    if not colors:
+        return C.WHITE
+    return colors.get(str(value).strip().lower(), colors["*"])
+
+
 def print_nxc_table(rows, columns):
     widths = {field: max(len(title), *(len(str(row.get(field, ""))) for row in rows))
               for field, title in columns}
     widths = {field: min(width, 46) for field, width in widths.items()}
 
-    def format_row(row):
-        return "  ".join(str(row.get(field, ""))[:widths[field]].ljust(widths[field])
-                         for field, _ in columns)
+    def format_cell(field, value):
+        return str(value)[:widths[field]].ljust(widths[field])
 
     print(c(C.CYAN + C.BOLD, "  NXC RESULTS"))
-    print(c(C.DIM, "  " + format_row({field: title for field, title in columns})))
+    header = "  ".join(c(C.BOLD, format_cell(field, title)) for field, title in columns)
+    print("  " + header)
     print(c(C.DIM, "  " + "  ".join("-" * widths[field] for field, _ in columns)))
     for row in rows:
-        print(c(C.WHITE, "  " + format_row(row)))
+        cells = [c(_nxc_cell_color(field, row.get(field, "")), format_cell(field, row.get(field, "")))
+                 for field, _ in columns]
+        print("  " + "  ".join(cells))
 
 
 def uses_anonymous_nxc_credentials(options):
