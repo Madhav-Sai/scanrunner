@@ -1010,22 +1010,57 @@ def _nxc_cell_color(field, value):
     return colors.get(str(value).strip().lower(), colors["*"])
 
 
-def print_nxc_table(rows, columns):
-    widths = {field: max(len(title), *(len(str(row.get(field, ""))) for row in rows))
+# The "bad" value per security field — the one that should count as a finding
+# in the summary line under the table. Absent/blank never counts (the field
+# wasn't observed, not necessarily unsafe).
+_NXC_FINDING_VALUE = {
+    "smbv1": "true", "smb_signing": "false", "rdp_nla": "false", "null_auth": "success",
+}
+
+
+def print_nxc_table(rows, columns, protocol=None):
+    if not rows:
+        print(c(C.YELLOW, "  [!] No hosts responded — nothing to show."))
+        return
+
+    def cell_text(field, value):
+        text = str(value).strip()
+        return text if text else "-"
+
+    widths = {field: max(len(title), *(len(cell_text(field, row.get(field, ""))) for row in rows))
               for field, title in columns}
     widths = {field: min(width, 46) for field, width in widths.items()}
 
     def format_cell(field, value):
-        return str(value)[:widths[field]].ljust(widths[field])
+        return cell_text(field, value)[:widths[field]].ljust(widths[field])
 
-    print(c(C.CYAN + C.BOLD, "  NXC RESULTS"))
-    header = "  ".join(c(C.BOLD, format_cell(field, title)) for field, title in columns)
-    print("  " + header)
-    print(c(C.DIM, "  " + "  ".join("-" * widths[field] for field, _ in columns)))
+    content_width = sum(widths.values()) + 3 * (len(columns) - 1)
+    title = "  NXC RESULTS"
+    if protocol:
+        title += f" — {protocol.upper()}"
+    title += f"  ({len(rows)} host{'s' if len(rows) != 1 else ''})"
+
+    print(c(C.CYAN + C.BOLD, title))
+    print(c(C.DIM, "  ┌─" + "─" * content_width + "─┐"))
+    header = " │ ".join(c(C.BOLD, format_cell(field, title)) for field, title in columns)
+    print(c(C.DIM, "  │ ") + header + c(C.DIM, " │"))
+    print(c(C.DIM, "  ├─" + "─" * content_width + "─┤"))
+    findings = 0
     for row in rows:
         cells = [c(_nxc_cell_color(field, row.get(field, "")), format_cell(field, row.get(field, "")))
                  for field, _ in columns]
-        print("  " + "  ".join(cells))
+        print(c(C.DIM, "  │ ") + " │ ".join(cells) + c(C.DIM, " │"))
+        for field, _ in columns:
+            if str(row.get(field, "")).strip().lower() == _NXC_FINDING_VALUE.get(field):
+                findings += 1
+    print(c(C.DIM, "  └─" + "─" * content_width + "─┘"))
+
+    finding_fields = {field for field, _ in columns} & set(_NXC_FINDING_VALUE)
+    if finding_fields:
+        color = C.RED + C.BOLD if findings else C.GREEN
+        plural = "s" if findings != 1 else ""
+        print(c(color, f"  {findings} finding{plural} across {len(rows)} host(s).") +
+              c(C.DIM, "  (red = finding, green = safe)"))
 
 
 def uses_anonymous_nxc_credentials(options):
@@ -1091,7 +1126,7 @@ def run_nxc(binary, protocol, target_source, targets, nxc_extra, queries, output
         null_auth_attempt=uses_anonymous_nxc_credentials(effective_extra),
     )
     columns = nxc_table_columns(protocol, queries)
-    print_nxc_table(rows, columns)
+    print_nxc_table(rows, columns, protocol=protocol)
 
     fieldnames = [field for field, _ in columns]
     csv_path = os.path.join(output_dir, f"nxc-{sanitize_filename(protocol)}-{timestamp}.csv")
