@@ -71,7 +71,7 @@ HELP_BANNER = r"""
  ___/ / /__/ /_/ / / / // _, _/ /_/ / / / / / / /  __/ /
 /____/\___/\__,_/_/ /_//_/ |_|\__,_/_/ /_/_/ /_/\___/_/
 
-                     scanrunner
+                     scanrunner BY - @Madhav
 """
 
 TOP_LEVEL_HELP = HELP_BANNER + r"""
