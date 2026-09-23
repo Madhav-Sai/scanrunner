@@ -30,7 +30,8 @@ OPTIONS = [
     "--nxc-query", "--yes", "--resume", "--skip-ping", "-ok", "--skip-no-ping", "--no-color",
     "--scope-file", "--retries", "--parallel", "-o", "--output",
     "--metadata-csv", "--html-report", "--list-templates", "--help-all",
-    "--nmap", "--reports",
+    "--nmap", "--reports", "--tabs", "--no-auto-tabs", "--status", "--diff",
+    "-v", "--version",
 ]
 
 
@@ -186,6 +187,9 @@ _scanrunner() {{
     '--skip-ping[skip wrapper ping]' '--no-color[disable colors]' \\
     '--html-report[create HTML report]' '--list-templates[list templates]' \\
     '--help-all[show complete help]' '--nmap[Nmap help]' '--reports[reporting help]' \\
+    '--tabs[split across N terminal tabs]:tabs:' '--no-auto-tabs[never offer tabs]' \\
+    '--status[summarise an output folder]:directory:_directories' \\
+    '--diff[compare two output folders]:old directory:_directories' \\
     '(-h --help)'{{-h,--help}}'[show help]' \\
     '*:Nmap argument or target:'
 }}
@@ -205,7 +209,7 @@ def bash_completion() -> str:
         -nxc|--nxc) COMPREPLY=( $(compgen -W "{' '.join(NXC_PROTOCOLS)}" -- "$cur") ); return ;;
         --nxc-query) COMPREPLY=( $(compgen -W "{' '.join(NXC_QUERIES)}" -- "$cur") ); return ;;
         -f|--file|--exclude-file|--scope-file|--metadata-csv) COMPREPLY=( $(compgen -f -- "$cur") ); return ;;
-        -o|--output) COMPREPLY=( $(compgen -d -- "$cur") ); return ;;
+        -o|--output|--status|--diff) COMPREPLY=( $(compgen -d -- "$cur") ); return ;;
     esac
     COMPREPLY=( $(compgen -W "{' '.join(OPTIONS)}" -- "$cur") )
 }}

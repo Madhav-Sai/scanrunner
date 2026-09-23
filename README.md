@@ -452,10 +452,10 @@ Client Engagements
 ```text
 results/
 │
-├── 192.168.1.10.txt
-├── 192.168.1.10.xml
-├── 192.168.1.20.txt
-├── 10.10.10.5.txt
+├── 192.168.1.10.txt            Nmap normal output (-oN)
+├── 192.168.1.10.xml            Nmap XML (-oX) — source for the inventory
+├── 10.10.10.0_24.txt           a CIDR target: one report, many hosts
+├── 10.10.10.5.error.log        Nmap console output, only for failed --parallel scans
 │
 ├── completed.txt
 ├── skipped.txt
@@ -463,9 +463,16 @@ results/
 ├── not-pingip.txt
 ├── failed.txt
 ├── retried.txt
-├── open-ports-inventory.csv
-└── open-ports-inventory.json
+├── unaccounted.txt             only when a run left targets without an outcome
+├── open-ports-inventory.csv    one row per host and open port
+├── open-ports-inventory.json
+├── open-ports-report.html      with --html-report: by-service and by-host tables
+└── scan-diff.json              written by --diff into the newer folder
 ```
+
+Inventory columns: `target, host, hostname, owner, environment, port_service,
+version`. `target` is what you listed; `host` is the address Nmap found, so a
+CIDR target produces one row per live host.
 
 ---
 
@@ -476,8 +483,8 @@ results/
 | completed.txt | Successfully scanned hosts |
 | skipped.txt | User-skipped hosts |
 | rescanned.txt | Hosts rescanned after detection |
-| not-pingip.txt | Hosts skipped after failed ping validation |
-| failed.txt | Scan failures |
+| not-pingip.txt | Hosts skipped after failed ping validation, and hosts Nmap reported down (0 hosts up) |
+| failed.txt | Scan failures: Nmap errors, `--host-timeout` hit (partial results), unresolvable hostnames, fatal Nmap errors |
 | retried.txt | Targets that needed another attempt |
 | unaccounted.txt | Written only if a run ends with targets that have no recorded outcome at all |
 
@@ -485,7 +492,10 @@ results/
 
 At the end of every run, scanrunner cross-checks the full input target list
 against completed.txt, skipped.txt, not-pingip.txt, and failed.txt. Every
-target should land in at least one of those. If a run gets interrupted before
+target should land in at least one of those **during this run** — an outcome
+left over from an earlier run doesn't count, so it can't hide a target this
+run never reached. Each target is counted once, by its latest outcome (a host
+that failed last week and completed today counts as completed). If a run gets interrupted before
 reaching some hosts (Ctrl+C, a closed terminal, a killed process), those hosts
 won't be in any of them yet — scanrunner prints a loud warning listing them
 and writes `unaccounted.txt` so a partially finished assessment can never be
@@ -505,6 +515,50 @@ accounted for.` Before reporting scan results to a client, check for this line
 or for the absence of `unaccounted.txt`.
 
 ---
+
+## Reviewing Results Without Scanning
+
+```bash
+# Outcome counts, reports that aren't complete, tab-run progress,
+# unaccounted targets, and the top open services
+scanrunner --status results
+
+# What changed between an initial test and a retest
+scanrunner --diff results-june results-retest
+```
+
+`--diff` lists ports newly open (red) or now closed (green) on each host, hosts
+that are new, and hosts no longer seen up. It also saves the result as
+`scan-diff.json` in the newer folder. Neither command runs Nmap.
+
+## How Nmap Results Are Classified
+
+| Report says | Logged as | `--resume` |
+|---|---|---|
+| `Nmap done`, hosts up | completed.txt | skipped |
+| `Nmap done ... (0 hosts up)` | not-pingip.txt (down) | tried again |
+| `Skipping host ... due to host timeout` | failed.txt (partial results kept) | tried again |
+| `0 IP addresses` (name did not resolve) | failed.txt | tried again |
+| no `Nmap done` line (interrupted) | — | tried again, even if completed.txt lists it from an earlier run |
+
+If Nmap refuses to start at all (an unknown option, a scan type that needs root,
+a missing NSE script — `QUITTING!` or `See the output of nmap -h`), scanrunner
+stops the run right away instead of failing every host the same way. The
+targets it didn't reach are listed as unaccounted, ready for `--resume` once the
+arguments are fixed.
+
+## Nmap Flags scanrunner Handles Itself
+
+| Flag | Behaviour |
+|---|---|
+| `-n`, and any other Nmap flag | passed to Nmap unchanged (scanrunner options must be typed in full; abbreviations are not guessed) |
+| `-iL FILE` | treated as `-f FILE` |
+| `-oN` / `-oX` / `-oG` / `-oA` / `-oS` | refused — scanrunner writes per-target `.txt` and `.xml` itself; use `-o DIR` |
+| `-iR N` | refused — random targets can't be scope-checked or tracked |
+| `-f` | always scanrunner's target file (Nmap's fragmentation flag is not available) |
+
+In NXC mode, `-o KEY=VALUE ...` is passed to NetExec as module options, while
+`-o DIR` is still the output folder.
 
 ## Automation and Reporting
 
@@ -627,8 +681,9 @@ files directly into the current directory rather than into `results/` — pass
 
 ### Testing
 
-Run the offline regression suite (it uses mocked scanner commands and does not
-send network traffic):
+Run the regression suite. It uses fake `nmap`, `ping` and `nxc` programs, so it
+sends no network traffic. The one exception is a single real-Nmap check against
+a listener on 127.0.0.1, which is skipped when Nmap isn't installed:
 
 ```bash
 python3 -m unittest discover -s tests -v
@@ -759,6 +814,9 @@ Run nmap with -Pn anyway? [y/n]:
 • Requires a local Nmap installation
 • NetExec functionality requires NetExec to be installed
 • Interactive keyboard controls are unavailable during parallel scans
+• Nmap's -f (fragmentation) cannot be passed, since -f is the target file
+• Scope checks understand IPs, CIDRs, last-octet ranges (10.0.0.5-20) and
+  hostnames; other Nmap range syntax (10.0-5.0.1) is refused when --scope-file is set
 ```
 
 ---
@@ -828,6 +886,8 @@ Run the offline test suite:
 python3 -m unittest discover -s tests -v
 ```
 
-The tests cover nested help, argument validation, target normalization, URL and
-hostname handling, NXC table parsing, quoted Nmap arguments, and completion
-script generation.
+The tests cover nested help, argument validation and Nmap/NetExec flag
+conflicts, scope checks, target normalization, report classification (complete,
+down, timeout, unresolved, interrupted), per-host XML parsing, inventory
+merging, outcome reconciliation, resume rules, NXC table parsing, and end-to-end
+serial, parallel, tab, fatal-error, retry, `--status` and `--diff` runs.

@@ -10,7 +10,6 @@ import csv
 import json
 import html
 import ipaddress
-import signal
 import socket
 import shutil
 import shlex
@@ -33,11 +32,13 @@ import threading
 import argparse
 import subprocess
 import tempfile
+import xml.etree.ElementTree as ET
+from collections import Counter, deque
 from datetime import datetime
 from urllib.parse import urlsplit
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 
 # When an interactive run has at least this many pending targets, offer to
 # split the work across separate terminal tabs (see offer_terminal_tabs()).
@@ -71,8 +72,7 @@ HELP_BANNER = r"""
  ___/ / /__/ /_/ / / / // _, _/ /_/ / / / / / / /  __/ /
 /____/\___/\__,_/_/ /_//_/ |_|\__,_/_/ /_/_/ /_/\___/_/
 
-                     scanrunner BY - @Madhav
-"""
+                     scanrunner by Madhav"""
 
 TOP_LEVEL_HELP = HELP_BANNER + r"""
 Automated Nmap and NetExec workflow for authorized assessments.
@@ -85,6 +85,10 @@ Start here:
   scanrunner -i 10.10.10.10 --template quick  Run an Nmap template
   scanrunner -f targets.txt -nxc smb           Run NetExec SMB mode
   scanrunner -f targets.txt --split 3          Split a target file
+
+Review results (no scanning):
+  scanrunner --status [DIR]                    Summarise an output folder
+  scanrunner --diff OLD_DIR NEW_DIR            Compare open ports between two runs
 
 Focused help:
   scanrunner --nmap -h       Nmap workflow and options
@@ -208,17 +212,72 @@ class _FileLock:
         except OSError:
             pass
 
-def read_logged_ips(path):
-    """Return the set of unique targets recorded in an audit-log file."""
+LOG_TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+# Audit logs that record a target's outcome, in tie-break priority order: if
+# two outcomes share a timestamp (second resolution), the earlier one here wins.
+OUTCOME_LOGS = (
+    ("completed", "completed.txt"),
+    ("skipped", "skipped.txt"),
+    ("no_ping", "not-pingip.txt"),
+    ("failed", "failed.txt"),
+)
+
+
+def run_start_time():
+    """Timestamp to pass as `since` for outcomes logged from now on."""
+    return datetime.now().replace(microsecond=0)
+
+
+def read_log_entries(path):
+    """Return (timestamp, target) pairs from an audit-log file, in file order.
+
+    Lines whose timestamp can't be parsed get datetime.min, so they still
+    count for "ever logged" but never for "logged during this run".
+    """
     if not os.path.exists(path):
-        return set()
-    seen = set()
-    with open(path, encoding="utf-8") as f:
+        return []
+    entries = []
+    with open(path, encoding="utf-8", errors="replace") as f:
         for line in f:
             parts = line.strip().split("|")
-            if len(parts) >= 2:
-                seen.add(parts[-1].strip())
-    return seen
+            if len(parts) < 2 or not parts[-1].strip():
+                continue
+            try:
+                stamp = datetime.strptime(parts[0].strip(), LOG_TIME_FORMAT)
+            except ValueError:
+                stamp = datetime.min
+            entries.append((stamp, parts[-1].strip()))
+    return entries
+
+
+def read_logged_ips(path, since=None):
+    """Return the set of unique targets recorded in an audit-log file.
+
+    With `since`, only entries logged at or after that time count.
+    """
+    return {target for stamp, target in read_log_entries(path)
+            if since is None or stamp >= since}
+
+
+def latest_outcomes(output_dir, since=None, log_paths=None):
+    """Return {target: outcome} using each target's most recent outcome.
+
+    A target that failed last week and completed today is "completed", not
+    both. `log_paths` optionally overrides the {outcome: path} mapping.
+    """
+    paths = log_paths or {name: os.path.join(output_dir, filename)
+                          for name, filename in OUTCOME_LOGS}
+    priority = {name: rank for rank, (name, _) in enumerate(OUTCOME_LOGS)}
+    best = {}
+    for name, path in paths.items():
+        for stamp, target in read_log_entries(path):
+            if since is not None and stamp < since:
+                continue
+            key = (stamp, -priority[name])
+            if target not in best or key > best[target][0]:
+                best[target] = (key, name)
+    return {target: name for target, (_, name) in best.items()}
 
 def count_unique_ips(path):
     return len(read_logged_ips(path))
@@ -308,17 +367,67 @@ def load_scope(path):
         print(c(C.RED + C.BOLD, f"  [!] Cannot read scope file: {error}"))
         sys.exit(1)
 
-def target_in_scope(target, scope):
+def _scope_networks(scope):
+    """Return the IP/CIDR entries of a scope list as ip_network objects."""
+    networks = []
+    for item in scope:
+        try:
+            networks.append(ipaddress.ip_network(item, strict=False))
+        except ValueError:
+            pass   # hostname entry — matched by name, not by address
+    return networks
+
+
+def _address_in_scope(address, networks):
+    return any(address.version == network.version and address in network
+               for network in networks)
+
+
+def parse_last_octet_range(target):
+    """Return (first, last) addresses for an Nmap range like 10.0.0.5-20, else None."""
+    match = re.fullmatch(r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.)(\d{1,3})-(\d{1,3})", target)
+    if not match:
+        return None
+    prefix, start, end = match.group(1), int(match.group(2)), int(match.group(3))
+    if start > end:
+        return None
+    try:
+        return ipaddress.ip_address(f"{prefix}{start}"), ipaddress.ip_address(f"{prefix}{end}")
+    except ValueError:
+        return None
+
+
+def target_in_scope(target, scope, resolver=None):
+    """Return whether a target is inside the authorized scope.
+
+    IPs and CIDRs are checked against the scope's IP/CIDR entries. A last-octet
+    range (10.0.0.5-20) must lie entirely inside scope. A hostname is in scope
+    when it is listed by name, or when it resolves to an in-scope address;
+    an unresolvable hostname is refused. Anything else is refused.
+    """
     if not scope or target in scope:
         return True
+    networks = _scope_networks(scope)
     try:
-        if "/" in target:
-            network = ipaddress.ip_network(target, strict=False)
-            return any(network.subnet_of(ipaddress.ip_network(item, strict=False))
-                       for item in scope if "/" in item)
-        address = ipaddress.ip_address(target)
-        return any(address in ipaddress.ip_network(item, strict=False)
-                   for item in scope if "/" in item)
+        network = ipaddress.ip_network(target, strict=False)
+        return any(network.version == item.version and network.subnet_of(item)
+                   for item in networks)
+    except ValueError:
+        pass
+
+    octet_range = parse_last_octet_range(target)
+    if octet_range:
+        first, last = octet_range
+        return all(_address_in_scope(ipaddress.ip_address(value), networks)
+                   for value in range(int(first), int(last) + 1))
+
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", target):
+        return False
+    if target.lower() in {item.lower() for item in scope}:
+        return True
+    resolved, _ = (resolver or resolve_scan_target)(target, timeout=5)
+    try:
+        return _address_in_scope(ipaddress.ip_address(resolved), networks)
     except ValueError:
         return False
 
@@ -341,6 +450,13 @@ Default table columns: IP, HOSTNAME, OS. Add --nxc-query to add fields —
 SMBv1 enabled, signing disabled, RDP without NLA, and successful null auth
 are highlighted in red as findings; their safe counterparts in green.
 Focused table fields: os, hostname, smbv1, smb-signing, null-auth, rdp-nla, all.
+
+CIDR targets are listed per responding host. Hostname targets are matched to
+their resolved IP, so each host appears once.
+
+NetExec module options: `-o KEY=VALUE ...` is passed to NetExec (any -o value
+containing "=" is a module option). Plain `-o DIR` is still scanrunner's
+output folder.
 """,
     "templates": """Nmap templates help
 
@@ -417,6 +533,19 @@ Large target lists:
 All unrecognized arguments are passed directly to Nmap. Use nmap --help for
 the complete current list of Nmap flags and NSE scripts. Use -v or -vv for
 more verbose Nmap output.
+
+Flags that overlap with scanrunner's own:
+  -iL FILE                Accepted; treated as -f FILE
+  -oN/-oX/-oG/-oA/-oS     Refused — scanrunner writes per-target .txt and .xml
+                          reports itself; choose the folder with -o DIR
+  -iR N                   Refused — random targets can't be scope-checked or tracked
+  -f                      Always scanrunner's target file, never Nmap fragmentation
+
+Pre-flight and failure handling:
+  Scan types that need root (-sS, -sU, -O, ...) print a warning when not run as
+  root. If Nmap stops with a fatal error (QUITTING!), for example a bad option or
+  missing privileges, the run stops immediately instead of failing every host
+  the same way. The remaining targets are reported as unaccounted.
 """,
     "reports": """Reporting and automation help
 
@@ -439,10 +568,25 @@ Automation options:
   --scope-file FILE      Refuse targets outside the authorized scope
 
 Every run ends by reconciling the full target list against completed.txt,
-skipped.txt, not-pingip.txt, and failed.txt. Any target with no recorded
-outcome at all (e.g. an interrupted run) is printed as a warning and saved to
-unaccounted.txt in the output directory — check for this before reporting
-results as final.
+skipped.txt, not-pingip.txt, and failed.txt. Only outcomes recorded during the
+current run count, and each target is counted once, by its latest outcome.
+Any target with no outcome recorded this run (e.g. an interrupted run) is
+printed as a warning and saved to unaccounted.txt in the output directory —
+check for this before reporting results as final.
+
+Hosts Nmap reports as down ("0 hosts up") are logged in not-pingip.txt and are
+not treated as completed, so --resume tries them again.
+
+Inventory files (open-ports-inventory.csv/.json, open-ports-report.html) are
+built from each target's Nmap XML, one row per discovered host and open port,
+so CIDR targets are broken down by host. Columns: target, host, hostname,
+owner, environment, port_service, version.
+
+Reviewing results without scanning:
+  scanrunner --status [DIR]           Outcome counts, incomplete reports, tab
+                                      progress, and top open services (default DIR: results)
+  scanrunner --diff OLD_DIR NEW_DIR   Ports opened/closed per host between two
+                                      runs; also saved as NEW_DIR/scan-diff.json
 """,
 }
 
@@ -463,7 +607,9 @@ OPTION_HELP = {
     "tabs": "--tabs N\nSplit targets across N terminal tabs immediately — skips the interactive prompt and works even below the 20-target auto-prompt threshold (e.g. a 5-target file). Mutually exclusive with --parallel and --no-auto-tabs.\nExample: scanrunner -f targets.txt --tabs 3 -sV",
     "no-auto-tabs": "--no-auto-tabs\nNever offer to split into terminal tabs, no matter how large the target list — always scan one host at a time in this window.\nExample: scanrunner -f targets.txt --no-auto-tabs -sV",
     "metadata-csv": "--metadata-csv FILE\nAdd owner/environment data to the CSV/JSON inventory; FILE needs a target column.\nExample: scanrunner -f targets.txt --metadata-csv assets.csv -sV",
-    "html-report": "--html-report\nCreate open-ports-report.html in the output directory.\nExample: scanrunner -f targets.txt --html-report -sV",
+    "html-report": "--html-report\nCreate open-ports-report.html (per-host table plus a by-service summary) in the output directory.\nExample: scanrunner -f targets.txt --html-report -sV",
+    "status": "--status [DIR]\nSummarise an output folder without scanning: latest outcome per target, incomplete reports, tab progress, unaccounted targets, and top open services. Default DIR: results.\nExample: scanrunner --status client-assessment",
+    "diff": "--diff OLD_DIR NEW_DIR\nCompare open ports per host between two output folders (e.g. an initial test and a retest). Prints opened/closed ports and new/missing hosts, and saves NEW_DIR/scan-diff.json.\nExample: scanrunner --diff results-june results-retest",
 }
 
 OPTION_ALIASES = {
@@ -476,6 +622,7 @@ OPTION_ALIASES = {
     "--retries": "retries", "retries": "retries", "--parallel": "parallel", "parallel": "parallel",
     "--tabs": "tabs", "tabs": "tabs", "--no-auto-tabs": "no-auto-tabs", "no-auto-tabs": "no-auto-tabs",
     "--metadata-csv": "metadata-csv", "metadata-csv": "metadata-csv", "--html-report": "html-report", "html-report": "html-report",
+    "--status": "status", "status": "status", "--diff": "diff", "diff": "diff",
 }
 
 
@@ -515,6 +662,7 @@ def completion_script(shell):
         "--scope-file", "--retries", "--parallel", "--tabs", "--no-auto-tabs", "-o", "--output",
         "--metadata-csv", "--html-report", "--list-templates", "--help-all",
         "--nmap", "--reports", "--nxc-native-help", "--completion",
+        "--status", "--diff",
     ]
     profiles = " ".join(sorted(SCAN_PROFILES))
     protocols = "smb rdp ldap winrm ssh ftp mssql wmi vnc nfs"
@@ -532,7 +680,7 @@ def completion_script(shell):
         -nxc|--nxc|--nxc-native-help) COMPREPLY=( $(compgen -W "{protocols}" -- "$cur") ); return ;;
         --nxc-query) COMPREPLY=( $(compgen -W "{queries}" -- "$cur") ); return ;;
         -f|--file|--exclude-file|--scope-file|--metadata-csv) COMPREPLY=( $(compgen -f -- "$cur") ); return ;;
-        -o|--output) COMPREPLY=( $(compgen -d -- "$cur") ); return ;;
+        -o|--output|--status|--diff) COMPREPLY=( $(compgen -d -- "$cur") ); return ;;
     esac
     COMPREPLY=( $(compgen -W "{words}" -- "$cur") )
 }}
@@ -552,6 +700,8 @@ _scanrunner() {{
     '--nxc-query[NXC result fields]:query:({queries})' \\
     '(-ok --skip-no-ping)'{{-ok,--skip-no-ping}}'[auto-skip wrapper ping failures]' \\
     '(-o --output)'{{-o,--output}}'[output directory]:directory:_directories' \\
+    '--status[summarise an output folder]:directory:_directories' \\
+    '--diff[compare two output folders]:old directory:_directories' \\
     '*:argument:'
 }}
 _scanrunner "$@"
@@ -635,11 +785,73 @@ def handle_topic_help():
 #  ARGUMENT PARSING
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# Nmap output flags. scanrunner always writes -oN/-oX itself (one report per
+# target), so a user-supplied one would either collide with those or — since
+# argparse reads "-oA" as "-o A" — silently change the output folder.
+_NMAP_OUTPUT_FLAG = re.compile(r"^-o[NXGASM]")
+
+
+def preprocess_argv(argv):
+    """Resolve flags that Nmap/NetExec and scanrunner both claim.
+
+    Returns (argv_for_argparse, passthrough_tokens, error_message). The
+    passthrough tokens are appended to the scanner arguments unchanged.
+    """
+    nxc_mode = any(token in {"-nxc", "--nxc"} or token.startswith(("-nxc=", "--nxc="))
+                   for token in argv)
+    result, passthrough = [], []
+    index = 0
+    while index < len(argv):
+        token = argv[index]
+        if nxc_mode:
+            # NetExec module options: -o KEY=VALUE [KEY=VALUE ...]
+            if token == "-o" and index + 1 < len(argv) and "=" in argv[index + 1] \
+                    and not argv[index + 1].startswith("-"):
+                values = []
+                index += 1
+                while index < len(argv) and "=" in argv[index] and not argv[index].startswith("-"):
+                    values.append(argv[index])
+                    index += 1
+                passthrough.extend(["-o", *values])
+                continue
+        else:
+            if _NMAP_OUTPUT_FLAG.match(token):
+                return argv, [], (
+                    f"{token[:3]} is not needed: scanrunner writes a .txt and .xml "
+                    "report per target itself. Remove it and use -o DIR to choose "
+                    "the output folder.")
+            if token == "-iR" or token.startswith("-iR"):
+                return argv, [], ("-iR (random targets) is not supported: targets must "
+                                  "come from -f/-i so they can be scope-checked and tracked.")
+            if token.startswith("-iL") and any(
+                    other in {"-f", "--file", "-i", "--ip"}
+                    or other.startswith(("--file=", "--ip="))
+                    for other in argv):
+                # argparse would silently keep only the last -f, dropping a list.
+                return argv, [], "-iL and -f/-i both give targets — use only one of them."
+            if token == "-iL":
+                if index + 1 >= len(argv):
+                    return argv, [], "-iL requires a file name"
+                result.extend(["-f", argv[index + 1]])
+                index += 2
+                continue
+            if token.startswith("-iL"):
+                result.extend(["-f", token[3:]])
+                index += 1
+                continue
+        result.append(token)
+        index += 1
+    return result, passthrough, None
+
+
 def parse_args():
     handle_topic_help()
     parser = argparse.ArgumentParser(
         prog="scanrunner",
         add_help=False,
+        # Abbreviation matching would turn Nmap's -n into -nxc and similar;
+        # every scanrunner option must be typed in full.
+        allow_abbrev=False,
         formatter_class=ScanrunnerHelpFormatter,
         usage="scanrunner (-f FILE | -i TARGET) [mode/options] [scanner arguments]",
     )
@@ -705,7 +917,11 @@ def parse_args():
                         help="Create an HTML open-port report")
 
 
-    args, nmap_extra = parser.parse_known_args()
+    argv, passthrough, argv_error = preprocess_argv(sys.argv[1:])
+    if argv_error:
+        parser.error(argv_error)
+    args, nmap_extra = parser.parse_known_args(argv)
+    nmap_extra.extend(passthrough)
     # Keep the raw token list — do NOT join then re-split.
     # Joining then shlex.split-ing loses spaces inside quoted args
     # e.g. --script-args "user=admin pass=hi" becomes two broken tokens.
@@ -923,23 +1139,42 @@ def strip_ansi(value):
     return re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", value)
 
 
-def parse_nxc_output(output, targets, null_auth_attempt=False):
-    """Extract host facts from NetExec's human-readable protocol output."""
-    rows = {target: {"target": target, "port": "", "hostname": "", "os": "",
-                     "smbv1": "", "smb_signing": "", "null_auth": "",
-                     "rdp_nla": "", "details": ""} for target in targets}
-    line_pattern = re.compile(
-        r"\b([A-Z]+)\s+(\S+)\s+(\d+)\s+(\S+)\s+(.*)$", re.IGNORECASE)
+def _empty_nxc_row(target):
+    return {"target": target, "port": "", "hostname": "", "os": "",
+            "smbv1": "", "smb_signing": "", "null_auth": "",
+            "rdp_nla": "", "details": ""}
+
+
+def _is_ip_literal(value):
+    try:
+        ipaddress.ip_address(value)
+        return True
+    except ValueError:
+        return False
+
+
+def parse_nxc_output(output, targets, null_auth_attempt=False, resolver=None):
+    """Extract host facts from NetExec's human-readable protocol output.
+
+    Every IP or hostname target gets a row, so hosts that never answered still
+    show up (as blanks). CIDR and range targets get no row of their own; each
+    host that responds within them shows up on its own row instead. A hostname
+    target whose resolved IP appears in the output is merged into that IP's row
+    rather than listed twice.
+    """
+    seeded = [target for target in targets
+              if not is_network_target(target) and not parse_last_octet_range(target)]
+    rows = {target: _empty_nxc_row(target) for target in seeded}
+    # NetExec lines start with the protocol name: "SMB  10.0.0.5  445  DC01  [*] ..."
+    line_pattern = re.compile(r"^([A-Z][A-Z0-9]*)\s+(\S+)\s+(\d+)\s+(\S+)\s+(.*)$")
 
     for raw_line in output.splitlines():
         line = strip_ansi(raw_line).strip()
-        match = line_pattern.search(line)
+        match = line_pattern.match(line)
         if not match:
             continue
         _, target, port, hostname, details = match.groups()
-        row = rows.setdefault(target, {"target": target, "port": "", "hostname": "",
-                                       "os": "", "smbv1": "", "smb_signing": "",
-                                       "null_auth": "", "rdp_nla": "", "details": ""})
+        row = rows.setdefault(target, _empty_nxc_row(target))
         row["port"] = port
         if hostname not in {"None", "(null)", "-"}:
             row["hostname"] = hostname
@@ -964,6 +1199,16 @@ def parse_nxc_output(output, targets, null_auth_attempt=False):
                 row[field] = value.group(1)
         if null_auth_attempt and "[+]" in details:
             row["null_auth"] = "Success"
+
+    # Fold hostname targets into the row of the IP they resolve to.
+    for target in seeded:
+        if _is_ip_literal(target) or rows[target]["port"]:
+            continue
+        resolved, _ = (resolver or resolve_scan_target)(target, timeout=3)
+        if resolved != target and resolved in rows and rows[resolved]["port"]:
+            if not rows[resolved]["hostname"]:
+                rows[resolved]["hostname"] = target
+            del rows[target]
 
     return list(rows.values())
 
@@ -1086,8 +1331,11 @@ def run_nxc(binary, protocol, target_source, targets, nxc_extra, queries, output
                 "  [!] Focused queries are currently parsed only from SMB/RDP output."))
 
     effective_extra = list(nxc_extra)
-    if "null-auth" in queries and not any(option in effective_extra
-                                           for option in ("-u", "--username", "-p", "--password")):
+    credential_supplied = any(
+        token in {"-u", "--username", "-p", "--password"}
+        or token.startswith(("--username=", "--password="))
+        for token in effective_extra)
+    if "null-auth" in queries and not credential_supplied:
         effective_extra.extend(["-u", "", "-p", ""])
 
     command = [binary, protocol, target_source, *effective_extra]
@@ -1165,13 +1413,39 @@ def ping_host(ip):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def get_file_status(filepath):
+    """Classify an Nmap normal-output report.
+
+    COMPLETE    finished, results are whole
+    DOWN        finished, but Nmap found 0 hosts up
+    TIMEOUT     finished, but a host hit --host-timeout (results are partial)
+    UNRESOLVED  finished, but the target never resolved (0 IP addresses)
+    INCOMPLETE  no "Nmap done" line — interrupted or still running
+    UNKNOWN     unreadable / missing
+    """
     try:
         with open(filepath, "rb") as f:
-            f.seek(max(0, os.path.getsize(filepath) - 4096))
-            tail = f.read().decode(errors="ignore")
-        return "COMPLETE" if "Nmap done" in tail else "INCOMPLETE"
+            content = f.read().decode(errors="ignore")
     except Exception:
         return "UNKNOWN"
+    tail = content[-4096:]
+    if "Nmap done" not in tail:
+        return "INCOMPLETE"
+    if re.search(r"Nmap done.*\b0 IP addresses\b", tail):
+        return "UNRESOLVED"
+    if "due to host timeout" in content:
+        return "TIMEOUT"
+    if re.search(r"\(0 hosts? up\)", tail):
+        return "DOWN"
+    return "COMPLETE"
+
+
+REPORT_STATUS_PROBLEMS = {
+    "TIMEOUT": "Nmap hit --host-timeout before finishing (partial results kept); "
+               "raise --host-timeout and rescan",
+    "UNRESOLVED": "Nmap could not resolve the target (0 IP addresses scanned)",
+    "INCOMPLETE": "Nmap exited without finishing the report",
+    "UNKNOWN": "Nmap produced no report file",
+}
 
 def show_last_lines(filepath, lines=15):
     try:
@@ -1191,7 +1465,11 @@ def display_existing_scan(filepath):
     stat         = os.stat(filepath)
     modified     = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
     size_kb      = round(stat.st_size / 1024, 2)
-    status_color = C.GREEN if status == "COMPLETE" else C.YELLOW
+    status_color = {"COMPLETE": C.GREEN, "DOWN": C.ORANGE}.get(status, C.YELLOW)
+    if status == "DOWN":
+        status += " (Nmap finished, 0 hosts up)"
+    elif status in {"TIMEOUT", "UNRESOLVED"}:
+        status += f" ({REPORT_STATUS_PROBLEMS[status]})"
 
     print(c(C.BLUE + C.BOLD, "\n  ╔══ Existing Scan Found " + "═" * 44))
     print(c(C.BLUE + C.BOLD, "  ║"))
@@ -1208,24 +1486,131 @@ def view_full_report(filepath):
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  OPEN PORTS PARSER
-#  Reads a completed nmap .txt file and returns a list of open port strings.
+#
+#  Every scan writes <target>.txt (-oN) and <target>.xml (-oX). The XML is the
+#  authoritative source — it separates hosts (a CIDR target covers many) and
+#  carries product/version data. The normal output is the fallback for
+#  interrupted scans (whose XML is truncated) and reports written by older
+#  versions that had no XML.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def parse_open_ports(filepath):
-    """Return list of 'port/service' strings from an nmap normal-output file."""
-    ports = []
-    if not os.path.exists(filepath):
-        return ports
+def _xml_report_path(report_path):
+    return f"{os.path.splitext(report_path)[0]}.xml"
+
+
+def _hosts_from_xml(xml_path):
+    root = ET.parse(xml_path).getroot()
+    if root.tag != "nmaprun":
+        raise ValueError("not an Nmap XML report")
+    hosts = []
+    for host in root.findall("host"):
+        status = host.find("status")
+        addresses = {addr.get("addrtype"): addr.get("addr") for addr in host.findall("address")}
+        hostname = host.find("hostnames/hostname")
+        entry = {
+            "address": addresses.get("ipv4") or addresses.get("ipv6") or "",
+            "hostname": hostname.get("name", "") if hostname is not None else "",
+            "status": status.get("state", "unknown") if status is not None else "unknown",
+            "ports": [],
+        }
+        for port in host.findall("ports/port"):
+            state = port.find("state")
+            if state is None or state.get("state") != "open":
+                continue
+            service = port.find("service")
+            name = version = ""
+            if service is not None:
+                name = service.get("name", "")
+                version = " ".join(part for part in (service.get("product", ""),
+                                                     service.get("version", ""),
+                                                     service.get("extrainfo", "")) if part)
+            entry["ports"].append({
+                "port": f"{port.get('portid')}/{port.get('protocol')}",
+                "service": name or "unknown",
+                "version": version,
+            })
+        hosts.append(entry)
+    return hosts
+
+
+_REPORT_HEADER = re.compile(r"^Nmap scan report for (?:(\S+) \(([^)]+)\)|(\S+))")
+_PORT_LINE = re.compile(r"^\s*(\d+/\w+)\s+open\s+(\S+)(?:\s+(.*\S))?\s*$")
+
+
+def _hosts_from_normal_output(report_path):
+    hosts = []
+    current = None
+    with open(report_path, "r", errors="ignore") as f:
+        for line in f:
+            header = _REPORT_HEADER.match(line)
+            if header:
+                name, address, bare = header.groups()
+                current = {"address": address or bare, "hostname": name or "",
+                           "status": "up", "ports": []}
+                hosts.append(current)
+                continue
+            if current is None:
+                continue
+            if line.startswith("Host seems down") or "host down" in line.lower():
+                current["status"] = "down"
+            port = _PORT_LINE.match(line)
+            if port:
+                current["ports"].append({"port": port.group(1), "service": port.group(2),
+                                         "version": port.group(3) or ""})
+    return hosts
+
+
+def parse_nmap_hosts(report_path):
+    """Return per-host results for a target's report.
+
+    Each host is {"address", "hostname", "status", "ports": [{"port",
+    "service", "version"}]}; only open ports are listed. Returns [] when the
+    report doesn't exist.
+    """
+    xml_path = _xml_report_path(report_path)
+    if os.path.exists(xml_path):
+        try:
+            return _hosts_from_xml(xml_path)
+        except (ET.ParseError, ValueError, OSError):
+            pass   # truncated XML from an interrupted scan — use the text report
+    if not os.path.exists(report_path):
+        return []
     try:
-        with open(filepath, "r", errors="ignore") as f:
-            for line in f:
-                # Match lines like: 22/tcp   open  ssh
-                m = re.match(r"^\s*(\d+/\w+)\s+open\s+(\S+)", line)
-                if m:
-                    ports.append(f"{m.group(1)}/{m.group(2)}")
-    except Exception:
-        pass
-    return ports
+        return _hosts_from_normal_output(report_path)
+    except OSError:
+        return []
+
+
+def port_label(port):
+    return f"{port['port']}/{port['service']}"
+
+
+def parse_open_ports(filepath):
+    """Return 'port/proto/service' strings for every open port in a report."""
+    return [port_label(port) for host in parse_nmap_hosts(filepath) for port in host["ports"]]
+
+
+def host_label(target, host):
+    """Label a discovered host for display, relative to the target that found it.
+
+    CIDR/range targets: "10.0.0.5 (10.0.0.0/24)"; hostname targets:
+    "web.lab (10.0.0.5)"; otherwise just the address.
+    """
+    if not host or host == target:
+        return target
+    if is_network_target(target) or parse_last_octet_range(target):
+        return f"{host} ({target})"
+    return f"{target} ({host})"
+
+
+def hosts_with_open_ports(report_path):
+    """Return [(host_label, [port labels])] for hosts in a report that have open ports."""
+    result = []
+    for host in parse_nmap_hosts(report_path):
+        if host["ports"]:
+            label = host["address"] or host["hostname"]
+            result.append((label, [port_label(port) for port in host["ports"]]))
+    return result
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1241,7 +1626,7 @@ def progress_bar(done, total):
     bar     = "█" * filled + "░" * (40 - filled)
     print()
     print(
-        c(C.BOLD,            f"  Progress  [{c(C.CYAN, bar)}{C.BOLD}]  ") +
+        c(C.BOLD, "  Progress  [") + c(C.CYAN, bar) + c(C.BOLD, "]  ") +
         c(C.YELLOW + C.BOLD, f"{percent:.1f}%") +
         c(C.DIM,             f"  ({done}/{total})  {total - done} remaining")
     )
@@ -1290,12 +1675,20 @@ def _rprint(text=""):
     sys.stdout.flush()
 
 def _rticker(text):
-    """Overwrite current line in-place (for live timer). No newline."""
+    """Overwrite current line in-place (for live timer). No newline.
+
+    Skipped when stdout isn't a terminal: in a log file or pipe each redraw
+    would pile up as another copy of the line.
+    """
+    if not sys.stdout.isatty():
+        return
     sys.stdout.write("\r" + text + "  ")
     sys.stdout.flush()
 
 def _rclear():
     """Clear the current ticker line before printing real output."""
+    if not sys.stdout.isatty():
+        return
     sys.stdout.write("\r" + " " * 72 + "\r")
     sys.stdout.flush()
 
@@ -1327,6 +1720,7 @@ def run_nmap_scan(target, output_file, nmap_extra, use_pn=False):
     line_queue    = queue.Queue()
     stdin_is_tty  = sys.stdin.isatty()
     open_ports    = []   # track open ports found so far for Space status
+    recent_lines  = deque(maxlen=NMAP_FATAL_CONTEXT_LINES)   # for fatal-error reporting
 
     # ── stdout reader thread ──────────────────────────────────────────────────
     def _read_stdout():
@@ -1361,13 +1755,9 @@ def run_nmap_scan(target, output_file, nmap_extra, use_pn=False):
                         abort_flag.set()
                         break
                     elif ch == " ":        # Space — request status
+                        # Nmap's own progress lines come from --stats-every;
+                        # this prints scanrunner's status block.
                         status_requested.set()
-                        try:
-                            # Best-effort: if nmap is on a real tty it prints
-                            # its own % line; piped stdout silently ignores it
-                            os.kill(proc.pid, signal.SIGWINCH)
-                        except Exception:
-                            pass
         except Exception:
             pass
         finally:
@@ -1433,6 +1823,8 @@ def run_nmap_scan(target, output_file, nmap_extra, use_pn=False):
         _rclear()
 
         line    = raw_line.rstrip()
+        if line.strip():
+            recent_lines.append(line)
         elapsed = int(time.time() - scan_start)
         mins, secs = divmod(elapsed, 60)
         ts      = c(C.DIM, f"  [{mins:02d}:{secs:02d}] ")
@@ -1505,6 +1897,13 @@ def run_nmap_scan(target, output_file, nmap_extra, use_pn=False):
 
     _rprint(c(C.DIM, "─" * 70))
 
+    fatal = nmap_fatal_reason(recent_lines)
+    if fatal:
+        _rprint(c(C.RED + C.BOLD, "  [x] Nmap stopped with a fatal error:"))
+        for reason_line in fatal.splitlines():
+            _rprint(c(C.RED, f"      {reason_line}"))
+        return "FATAL"
+
     # If Nmap printed output and produced a report file, treat as success
     if proc.returncode is None:
         return False
@@ -1512,19 +1911,60 @@ def run_nmap_scan(target, output_file, nmap_extra, use_pn=False):
     return proc.returncode == 0
 
 
+# Nmap refuses to run at all for configuration errors — a scan type that needs
+# root, a bad port spec, a missing NSE script ("... QUITTING!"), or an unknown
+# or incomplete option ("See the output of nmap -h ..."). Those fail
+# identically for every host, so the run stops instead of burning through the
+# whole list.
+NMAP_FATAL_CONTEXT_LINES = 6
+_NMAP_FATAL_MARKERS = ("QUITTING!", "See the output of nmap -h")
+
+
+def nmap_fatal_reason(lines):
+    """Return the lines explaining a fatal Nmap error, or None."""
+    lines = [line for line in lines if line.strip()]
+    if not any(marker in line for line in lines for marker in _NMAP_FATAL_MARKERS):
+        return None
+    return "\n".join(lines[-NMAP_FATAL_CONTEXT_LINES:])
+
+
 def run_nmap_quiet(target, output_file, nmap_extra, use_pn, retries):
-    """Run a non-interactive scan, returning success and attempts used."""
-    for attempt in range(retries + 1):
+    """Run a non-interactive scan.
+
+    Returns (status, attempts, detail): status is COMPLETE, DOWN, FAILED or
+    FATAL. For FAILED/FATAL, Nmap's console output is saved beside the report
+    as <target>.error.log; detail explains the failure and names that log
+    (FATAL: Nmap's error lines).
+    """
+    error_log = f"{os.path.splitext(output_file)[0]}.error.log"
+    output = ""
+    reason = ""
+    for attempt in range(1, retries + 2):
         result = subprocess.run(
             _build_nmap_command(target, output_file, nmap_extra, use_pn),
             stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            errors="replace",
             check=False,
         )
-        if result.returncode == 0 and os.path.exists(output_file):
-            return True, attempt + 1
-    return False, retries + 1
+        output = result.stdout or ""
+        fatal = nmap_fatal_reason(output.splitlines())
+        if fatal:
+            with open(error_log, "w", encoding="utf-8") as file:
+                file.write(output)
+            return "FATAL", attempt, fatal
+        status = get_file_status(output_file)
+        if result.returncode == 0 and status in {"COMPLETE", "DOWN"}:
+            if os.path.exists(error_log):
+                os.remove(error_log)   # stale log from an earlier failed run
+            return status, attempt, ""
+        reason = (REPORT_STATUS_PROBLEMS.get(status) if result.returncode == 0
+                  else f"Nmap exited with status {result.returncode}")
+    with open(error_log, "w", encoding="utf-8") as file:
+        file.write(output)
+    return "FAILED", retries + 1, f"{reason}; console output: {error_log}"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1532,13 +1972,75 @@ def run_nmap_quiet(target, output_file, nmap_extra, use_pn, retries):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def print_open_ports_oneliner(ip, filepath):
-    ports = parse_open_ports(filepath)
-    if ports:
-        ports_str = "  ".join(ports)
-        print(c(C.GREEN + C.BOLD, f"  Open  →  ") + c(C.WHITE, ports_str))
-    else:
+    hosts = hosts_with_open_ports(filepath)
+    if not hosts:
         print(c(C.DIM, "  No open ports found."))
-    return ports
+        return []
+    if len(hosts) == 1 and not is_network_target(ip) and not parse_last_octet_range(ip):
+        print(c(C.GREEN + C.BOLD, "  Open  →  ") + c(C.WHITE, "  ".join(hosts[0][1])))
+    else:
+        for host, ports in hosts:
+            print(c(C.GREEN + C.BOLD, f"  Open  →  {host:<16} ") + c(C.WHITE, "  ".join(ports)))
+    return [port for _, ports in hosts for port in ports]
+
+
+INVENTORY_FIELDS = ["target", "host", "hostname", "owner", "environment", "port_service", "version"]
+
+
+def inventory_rows_for_target(output_dir, target, metadata):
+    details = metadata.get(target, {})
+    report = os.path.join(output_dir, f"{sanitize_filename(target)}.txt")
+    rows = []
+    for host in parse_nmap_hosts(report):
+        for port in host["ports"]:
+            rows.append({
+                "target": target,
+                "host": host["address"],
+                "hostname": host["hostname"],
+                "owner": details.get("owner", ""),
+                "environment": details.get("environment", ""),
+                "port_service": port_label(port),
+                "version": port["version"],
+            })
+    return rows
+
+
+def render_html_report(rows):
+    """Return a standalone HTML page: per-host open ports plus a by-service summary."""
+    esc = lambda value: html.escape(str(value or ""))
+    hosts = sorted({(row.get("host") or row.get("target", "")) for row in rows})
+    by_service = {}
+    for row in rows:
+        by_service.setdefault(row.get("port_service", ""), set()).add(
+            row.get("host") or row.get("target", ""))
+
+    host_rows = "\n".join(
+        "<tr>" + "".join(f"<td>{esc(row.get(field))}</td>" for field in INVENTORY_FIELDS) + "</tr>"
+        for row in rows
+    ) or f"<tr><td colspan=\"{len(INVENTORY_FIELDS)}\">No open ports found.</td></tr>"
+    service_rows = "\n".join(
+        f"<tr><td>{esc(service)}</td><td>{len(service_hosts)}</td>"
+        f"<td>{esc(', '.join(sorted(service_hosts)))}</td></tr>"
+        for service, service_hosts in sorted(by_service.items(),
+                                             key=lambda item: (-len(item[1]), item[0]))
+    ) or "<tr><td colspan=\"3\">No open ports found.</td></tr>"
+    headers = "".join(f"<th>{esc(field.replace('_', ' ').title())}</th>" for field in INVENTORY_FIELDS)
+    generated = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return (
+        "<!doctype html><html lang=\"en\"><meta charset=\"utf-8\">"
+        "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+        "<title>Scanrunner Inventory</title>"
+        "<style>:root{color-scheme:light dark}body{font-family:system-ui,sans-serif;margin:2rem;"
+        "line-height:1.4}table{border-collapse:collapse;margin-bottom:2rem;width:100%}"
+        "th,td{border:1px solid #8886;padding:.4rem .6rem;text-align:left;vertical-align:top}"
+        "th{background:#8882}.meta{opacity:.75}</style>"
+        "<h1>Scanrunner Open-Port Inventory</h1>"
+        f"<p class=\"meta\">Generated {esc(generated)} · {len(hosts)} host(s) with open ports · "
+        f"{len(rows)} open port(s) · {len(by_service)} distinct service(s)</p>"
+        f"<h2>By service</h2><table><tr><th>Port / Service</th><th>Hosts</th><th>Host list</th></tr>"
+        f"{service_rows}</table>"
+        f"<h2>By host</h2><table><tr>{headers}</tr>{host_rows}</table></html>"
+    )
 
 
 def write_inventory(output_dir, targets, metadata, write_html):
@@ -1551,15 +2053,7 @@ def write_inventory(output_dir, targets, metadata, write_html):
     """
     new_rows = []
     for target in targets:
-        details = metadata.get(target, {})
-        report = os.path.join(output_dir, f"{sanitize_filename(target)}.txt")
-        for port in parse_open_ports(report):
-            new_rows.append({
-                "target": target,
-                "owner": details.get("owner", ""),
-                "environment": details.get("environment", ""),
-                "port_service": port,
-            })
+        new_rows.extend(inventory_rows_for_target(output_dir, target, metadata))
 
     csv_path = os.path.join(output_dir, "open-ports-inventory.csv")
     json_path = os.path.join(output_dir, "open-ports-inventory.json")
@@ -1576,28 +2070,19 @@ def write_inventory(output_dir, targets, metadata, write_html):
         rows = [row for row in rows if row.get("target") not in targets_set]
         rows.extend(new_rows)
 
+        # Rows written by older versions lack host/hostname/version; fill blanks
+        # so every row has the same shape.
+        rows = [{field: row.get(field, "") for field in INVENTORY_FIELDS} for row in rows]
         with open(csv_path, "w", newline="", encoding="utf-8") as file:
-            writer = csv.DictWriter(file, fieldnames=["target", "owner", "environment", "port_service"])
+            writer = csv.DictWriter(file, fieldnames=INVENTORY_FIELDS)
             writer.writeheader()
             writer.writerows(rows)
         with open(json_path, "w", encoding="utf-8") as file:
             json.dump(rows, file, indent=2)
 
         if write_html:
-            body = "\n".join(
-                "<tr>" + "".join(f"<td>{html.escape(row[column])}</td>"
-                                  for column in ("target", "owner", "environment", "port_service")) + "</tr>"
-                for row in rows
-            ) or "<tr><td colspan=\"4\">No open ports found.</td></tr>"
-            report = (
-                "<!doctype html><meta charset=\"utf-8\"><title>Scanrunner Inventory</title>"
-                "<style>body{font-family:system-ui;margin:2rem}table{border-collapse:collapse}"
-                "th,td{border:1px solid #ccc;padding:.5rem;text-align:left}</style>"
-                "<h1>Scanrunner Open-Port Inventory</h1><table><tr><th>Target</th><th>Owner</th>"
-                f"<th>Environment</th><th>Port / Service</th></tr>{body}</table>"
-            )
             with open(os.path.join(output_dir, "open-ports-report.html"), "w", encoding="utf-8") as file:
-                file.write(report)
+                file.write(render_html_report(rows))
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1605,12 +2090,29 @@ def write_inventory(output_dir, targets, metadata, write_html):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def print_summary(ips, completed_file, skipped_file, rescanned_file,
-                  not_ping_file, failed_file, output_dir):
-    completed_ips = read_logged_ips(completed_file)
-    skipped_ips   = read_logged_ips(skipped_file)
-    rescanned_ips = read_logged_ips(rescanned_file)
-    no_ping_ips   = read_logged_ips(not_ping_file)
-    failed_ips    = read_logged_ips(failed_file)
+                  not_ping_file, failed_file, output_dir, since=None):
+    """Print outcome counts, reconcile every target, and list open ports.
+
+    Counts cover only this target list, one outcome per target (its latest).
+    With `since` (the run's start time), only outcomes logged during this run
+    count — an outcome left over from an earlier run can't hide a target
+    this run never reached.
+    """
+    targets = set(ips)
+    outcomes = latest_outcomes(output_dir, since=since, log_paths={
+        "completed": completed_file, "skipped": skipped_file,
+        "no_ping": not_ping_file, "failed": failed_file,
+    })
+    outcomes = {target: outcome for target, outcome in outcomes.items() if target in targets}
+
+    def with_outcome(name):
+        return {target for target, outcome in outcomes.items() if outcome == name}
+
+    completed_ips = with_outcome("completed")
+    skipped_ips   = with_outcome("skipped")
+    no_ping_ips   = with_outcome("no_ping")
+    failed_ips    = with_outcome("failed")
+    rescanned_ips = read_logged_ips(rescanned_file, since=since) & targets
 
     print()
     print(c(C.BOLD, "  ╔══════════════════════════════╗"))
@@ -1619,7 +2121,7 @@ def print_summary(ips, completed_file, skipped_file, rescanned_file,
     print(c(C.BOLD, "  ║  ") + c(C.GREEN  + C.BOLD, f"  Completed : {len(completed_ips):<5}") + c(C.BOLD, "         ║"))
     print(c(C.BOLD, "  ║  ") + c(C.YELLOW + C.BOLD, f"  Skipped   : {len(skipped_ips):<5}")   + c(C.BOLD, "         ║"))
     print(c(C.BOLD, "  ║  ") + c(C.CYAN   + C.BOLD, f"  Rescanned : {len(rescanned_ips):<5}") + c(C.BOLD, "         ║"))
-    print(c(C.BOLD, "  ║  ") + c(C.ORANGE + C.BOLD, f"  No Ping   : {len(no_ping_ips):<5}")   + c(C.BOLD, "         ║"))
+    print(c(C.BOLD, "  ║  ") + c(C.ORANGE + C.BOLD, f"  Down/NoPing: {len(no_ping_ips):<5}") + c(C.BOLD, "        ║"))
     print(c(C.BOLD, "  ║  ") + c(C.RED    + C.BOLD, f"  Failed    : {len(failed_ips):<5}")    + c(C.BOLD, "         ║"))
     print(c(C.BOLD, "  ╚══════════════════════════════╝"))
 
@@ -1627,8 +2129,7 @@ def print_summary(ips, completed_file, skipped_file, rescanned_file,
     # This is the safety net: a target that isn't completed, skipped, logged as
     # unreachable, or logged as failed has NO recorded outcome at all (e.g. the
     # run was interrupted before reaching it). That must never pass silently.
-    accounted = completed_ips | skipped_ips | no_ping_ips | failed_ips
-    unaccounted = [ip for ip in ips if ip not in accounted]
+    unaccounted = [ip for ip in ips if ip not in outcomes]
     print()
     if unaccounted:
         unaccounted_path = os.path.join(output_dir, "unaccounted.txt")
@@ -1651,28 +2152,29 @@ def print_summary(ips, completed_file, skipped_file, rescanned_file,
     else:
         print(c(C.GREEN, f"  [+] Reconciliation OK — all {len(ips)} input target(s) are accounted for."))
 
-    # ── Open ports table across all completed hosts ───────────────────────────
-    host_ports = {}
-    if os.path.exists(completed_file):
-        with open(completed_file, encoding="utf-8") as f:
-            done_ips = [line.split("|")[-1].strip() for line in f if line.strip()]
-        for ip in dict.fromkeys(done_ips):   # unique, preserve order
-            fp = os.path.join(output_dir, f"{sanitize_filename(ip)}.txt")
-            ports = parse_open_ports(fp)
-            if ports:
-                host_ports[ip] = ports
+    # ── Open ports table across this list's completed targets ─────────────────
+    # A target counts if it was ever completed (not just this run) so a
+    # resumed run still shows the full picture; CIDR targets list each host.
+    ever_completed = read_logged_ips(completed_file)
+    host_ports = []
+    for ip in ips:
+        if ip not in ever_completed:
+            continue
+        report = os.path.join(output_dir, f"{sanitize_filename(ip)}.txt")
+        for host, ports in hosts_with_open_ports(report):
+            host_ports.append((host_label(ip, host), ports))
 
     if host_ports:
         print()
         sep(C.CYAN, "═")
         print(c(C.CYAN + C.BOLD, "  OPEN PORTS SUMMARY"))
         sep(C.CYAN, "═")
-        col = 20   # IP column width
+        col = max(20, *(len(label) for label, _ in host_ports))
         print(c(C.BOLD, f"  {'HOST':<{col}}  OPEN PORTS"))
         sep()
-        for ip, ports in host_ports.items():
+        for label, ports in host_ports:
             ports_str = "  ".join(ports)
-            print(c(C.WHITE, f"  {ip:<{col}}") + "  " + c(C.GREEN, ports_str))
+            print(c(C.WHITE, f"  {label:<{col}}") + "  " + c(C.GREEN, ports_str))
         sep()
 
     print()
@@ -1755,33 +2257,49 @@ def _spawn_macos_terminal(command, title, cwd):
         return False
 
 
+def _terminal_failed_to_start(process, grace=0.5):
+    """Return whether a just-launched terminal exited with an error right away.
+
+    Popen succeeding only means the terminal binary started; without a usable
+    display it exits moments later and the tab's targets would never run.
+    """
+    try:
+        return process.wait(timeout=grace) != 0
+    except subprocess.TimeoutExpired:
+        return False   # still running — the window is up
+
+
 def _spawn_linux_terminal(command, title, cwd):
     if os.environ.get("TMUX"):
         try:
-            subprocess.Popen(["tmux", "new-window", "-n", title, "-c", cwd, *command])
-            return True
+            process = subprocess.Popen(["tmux", "new-window", "-n", title, "-c", cwd, *command])
+            if not _terminal_failed_to_start(process):
+                return True
         except OSError:
             pass
+    # GUI terminals need an X11/Wayland display (not available over plain SSH).
+    if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+        return False
     quoted_command = " ".join(shlex.quote(part) for part in command)
+    candidates = []
     for terminal in ("x-terminal-emulator", "gnome-terminal", "konsole", "xfce4-terminal"):
         path = shutil.which(terminal)
         if not path:
             continue
-        try:
-            if terminal == "gnome-terminal":
-                subprocess.Popen([path, "--title", title, "--working-directory", cwd, "--", *command])
-            else:
-                subprocess.Popen([path, "-e", quoted_command], cwd=cwd)
-            return True
-        except OSError:
-            continue
+        if terminal == "gnome-terminal":
+            candidates.append([path, "--title", title, "--working-directory", cwd, "--", *command])
+        else:
+            candidates.append([path, "-e", quoted_command])
     xterm = shutil.which("xterm")
     if xterm:
+        candidates.append([xterm, "-T", title, "-e", *command])
+    for candidate in candidates:
         try:
-            subprocess.Popen([xterm, "-T", title, "-e", *command], cwd=cwd)
-            return True
+            process = subprocess.Popen(candidate, cwd=cwd)
         except OSError:
-            pass
+            continue
+        if not _terminal_failed_to_start(process):
+            return True
     return False
 
 
@@ -1838,6 +2356,7 @@ def _launch_tabs(args, pending_ips, output_dir, tab_count):
     """
     tabs_dir = os.path.join(output_dir, "tabs")
     os.makedirs(tabs_dir, exist_ok=True)
+    launched_at = run_start_time()
     base_size, remainder = divmod(len(pending_ips), tab_count)
     base_command = _build_tab_command(args)
     cwd = os.getcwd()
@@ -1881,6 +2400,10 @@ def _launch_tabs(args, pending_ips, output_dir, tab_count):
     manifest_path = os.path.join(output_dir, "tab-manifest.txt")
     with open(manifest_path, "w", encoding="utf-8") as f:
         f.write("\n".join(manifest_lines) + "\n")
+    # --status measures tab progress from the manifest's mtime; pin it to the
+    # launch time, since fast tabs may log outcomes before this file is written.
+    launch_epoch = launched_at.timestamp()
+    os.utime(manifest_path, (launch_epoch, launch_epoch))
 
     print(c(C.GREEN + C.BOLD,
             f"\n  [+] Launched {tab_count} tab(s): {spawned} in terminal windows, "
@@ -1888,18 +2411,19 @@ def _launch_tabs(args, pending_ips, output_dir, tab_count):
     print(c(C.CYAN, f"  [i] All tabs write their reports directly into {output_dir}/."))
     print(c(C.CYAN, f"  [i] Target-to-tab manifest saved: {manifest_path}"))
 
-    _watch_tab_progress(output_dir, pending_ips)
+    _watch_tab_progress(output_dir, pending_ips, since=launched_at)
     return True
 
 
-def _watch_tab_progress(output_dir, pending_ips, poll_interval=3):
+def _watch_tab_progress(output_dir, pending_ips, poll_interval=3, since=None):
     """Live-poll the shared output files and render an aggregate dashboard.
 
     All spawned tabs write completed.txt/skipped.txt/failed.txt/etc. and per-
     host reports into the same output_dir this window already knows about, so
     overall progress can be read back without any inter-process signaling.
     Redraws in place; Ctrl+C detaches (the tabs keep scanning) rather than
-    killing anything.
+    killing anything. Only outcomes logged at or after `since` (the launch
+    time) count, so leftovers from an earlier run don't show as progress.
     """
     if not sys.stdout.isatty():
         print(c(C.YELLOW,
@@ -1907,10 +2431,6 @@ def _watch_tab_progress(output_dir, pending_ips, poll_interval=3):
                 f"Check {output_dir}/unaccounted.txt and the open-ports inventory when done.\n"))
         return
 
-    completed_file = os.path.join(output_dir, "completed.txt")
-    skipped_file   = os.path.join(output_dir, "skipped.txt")
-    failed_file    = os.path.join(output_dir, "failed.txt")
-    not_ping_file  = os.path.join(output_dir, "not-pingip.txt")
     retry_file     = os.path.join(output_dir, "retried.txt")
 
     total = len(pending_ips)
@@ -1923,18 +2443,21 @@ def _watch_tab_progress(output_dir, pending_ips, poll_interval=3):
     lines_printed = 0
     try:
         while True:
-            completed = read_logged_ips(completed_file) & pending_set
-            skipped   = read_logged_ips(skipped_file)   & pending_set
-            failed    = read_logged_ips(failed_file)    & pending_set
-            no_ping   = read_logged_ips(not_ping_file)  & pending_set
-            retried   = read_logged_ips(retry_file)     & pending_set
-            accounted = completed | skipped | failed | no_ping
+            outcomes  = {target: outcome for target, outcome
+                         in latest_outcomes(output_dir, since=since).items()
+                         if target in pending_set}
+            completed = {t for t, o in outcomes.items() if o == "completed"}
+            skipped   = {t for t, o in outcomes.items() if o == "skipped"}
+            failed    = {t for t, o in outcomes.items() if o == "failed"}
+            no_ping   = {t for t, o in outcomes.items() if o == "no_ping"}
+            retried   = read_logged_ips(retry_file, since=since) & pending_set
+            accounted = set(outcomes)
             remaining = total - len(accounted)
 
             open_port_hosts = open_port_total = 0
             for ip in completed:
-                ports = parse_open_ports(os.path.join(output_dir, f"{sanitize_filename(ip)}.txt"))
-                if ports:
+                for _, ports in hosts_with_open_ports(
+                        os.path.join(output_dir, f"{sanitize_filename(ip)}.txt")):
                     open_port_hosts += 1
                     open_port_total += len(ports)
 
@@ -1943,7 +2466,7 @@ def _watch_tab_progress(output_dir, pending_ips, poll_interval=3):
             bar       = "█" * filled + "░" * (30 - filled)
 
             block = [
-                c(C.BOLD, f"  Progress  [{c(C.CYAN, bar)}{C.BOLD}]  ") +
+                c(C.BOLD, "  Progress  [") + c(C.CYAN, bar) + c(C.BOLD, "]  ") +
                 c(C.YELLOW + C.BOLD, f"{done_frac * 100:.1f}%") +
                 c(C.DIM, f"  ({len(accounted)}/{total} accounted for)"),
                 "  " +
@@ -1951,7 +2474,7 @@ def _watch_tab_progress(output_dir, pending_ips, poll_interval=3):
                 c(C.YELLOW + C.BOLD, f"  Skipped: {len(skipped):<5}") +
                 c(C.RED    + C.BOLD, f"  Failed: {len(failed):<5}"),
                 "  " +
-                c(C.ORANGE + C.BOLD, f"No Ping: {len(no_ping):<5}") +
+                c(C.ORANGE + C.BOLD, f"Down/NoPing: {len(no_ping):<5}") +
                 c(C.CYAN   + C.BOLD, f"  Retried: {len(retried):<5}") +
                 c(C.DIM,             f"  Running/Queued: {max(remaining, 0):<5}"),
                 c(C.GREEN, f"  Open ports so far: {open_port_total} across {open_port_hosts} host(s)"),
@@ -1982,12 +2505,229 @@ def _watch_tab_progress(output_dir, pending_ips, poll_interval=3):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+#  RESUME
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def previously_completed(ips, output_dir, completed_file):
+    """Return the targets in ips that don't need scanning again.
+
+    A target is done when its report is COMPLETE, or when it was logged as
+    completed at or after its report was last written (marked done with [m],
+    or a report written by a version without per-target files). A report
+    overwritten after that log entry — e.g. a rescan that was interrupted —
+    does not count, even though completed.txt still lists the target. A report
+    whose host was down never counts, so --resume tries it again.
+    """
+    last_completed = {}
+    for stamp, target in read_log_entries(completed_file):
+        last_completed[target] = max(stamp, last_completed.get(target, datetime.min))
+    done = set()
+    for ip in ips:
+        report = os.path.join(output_dir, f"{sanitize_filename(ip)}.txt")
+        if not os.path.exists(report):
+            if ip in last_completed:
+                done.add(ip)
+            continue
+        status = get_file_status(report)
+        if status == "COMPLETE":
+            done.add(ip)
+        elif status != "DOWN" and ip in last_completed:
+            written = datetime.fromtimestamp(int(os.path.getmtime(report)))
+            if last_completed[ip] >= written:
+                done.add(ip)
+    return done
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  STATUS AND DIFF  (read-only review of output folders)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_NON_REPORT_TXT = {"completed.txt", "skipped.txt", "rescanned.txt", "not-pingip.txt",
+                   "failed.txt", "retried.txt", "unaccounted.txt", "tab-manifest.txt"}
+
+
+def find_reports(output_dir):
+    """Return sorted paths of Nmap normal-output reports in output_dir."""
+    reports = []
+    try:
+        names = sorted(os.listdir(output_dir))
+    except OSError:
+        return reports
+    for name in names:
+        path = os.path.join(output_dir, name)
+        if not name.endswith(".txt") or name in _NON_REPORT_TXT or name.startswith("nxc-") \
+                or not os.path.isfile(path):
+            continue
+        try:
+            with open(path, encoding="utf-8", errors="ignore") as f:
+                first_line = f.readline()
+        except OSError:
+            continue
+        if first_line.startswith("# Nmap"):
+            reports.append(path)
+    return reports
+
+
+def collect_open_ports(output_dir):
+    """Return {host: {port/proto: service}} across every report in output_dir."""
+    hosts = {}
+    for report in find_reports(output_dir):
+        for host in parse_nmap_hosts(report):
+            key = host["address"] or host["hostname"]
+            if not key or host["status"] != "up":
+                continue
+            entry = hosts.setdefault(key, {})
+            for port in host["ports"]:
+                entry[port["port"]] = port["service"]
+    return hosts
+
+
+def print_status(output_dir):
+    """Summarise an output folder without scanning anything. Returns an exit code."""
+    if not os.path.isdir(output_dir):
+        print(c(C.RED + C.BOLD, f"  [!] Output folder not found: {output_dir}"))
+        return 1
+
+    print(c(C.CYAN + C.BOLD, f"  STATUS — {os.path.abspath(output_dir)}"))
+    sep()
+
+    outcomes = latest_outcomes(output_dir)
+    counts = Counter(outcomes.values())
+    labels = (("completed", "Completed", C.GREEN), ("skipped", "Skipped", C.YELLOW),
+              ("no_ping", "Down/NoPing", C.ORANGE), ("failed", "Failed", C.RED))
+    print(c(C.BOLD, "  Latest outcome per target (all runs):"))
+    for key, label, color in labels:
+        print(c(color + C.BOLD, f"    {label:<12}: {counts.get(key, 0)}"))
+    print(c(C.DIM, f"    {'Total':<12}: {len(outcomes)}"))
+
+    manifest = os.path.join(output_dir, "tab-manifest.txt")
+    if os.path.exists(manifest):
+        planned = []
+        with open(manifest, encoding="utf-8") as f:
+            for line in f:
+                parts = line.rstrip("\n").split("\t")
+                if len(parts) == 3 and parts[2]:
+                    planned.extend(parts[2].split(","))
+        since = datetime.fromtimestamp(int(os.path.getmtime(manifest)))
+        done_since = latest_outcomes(output_dir, since=since)
+        finished = sum(1 for target in planned if target in done_since)
+        print()
+        print(c(C.CYAN, f"  Tab run: {finished}/{len(planned)} target(s) have an outcome "
+                        f"since the tabs launched ({since:%Y-%m-%d %H:%M:%S})."))
+
+    unaccounted_path = os.path.join(output_dir, "unaccounted.txt")
+    if os.path.exists(unaccounted_path):
+        with open(unaccounted_path, encoding="utf-8") as f:
+            unaccounted = [line.strip() for line in f if line.strip()]
+        if unaccounted:
+            print()
+            print(c(C.RED + C.BOLD, f"  [!] {len(unaccounted)} target(s) listed in {unaccounted_path}"))
+
+    reports = find_reports(output_dir)
+    problems = [(path, get_file_status(path)) for path in reports]
+    problems = [(path, status) for path, status in problems if status not in {"COMPLETE", "DOWN"}]
+    print()
+    print(c(C.BOLD, f"  Reports: {len(reports)} file(s), {len(problems)} not complete"))
+    for path, status in problems:
+        print(c(C.YELLOW, f"    {status:<11} {os.path.basename(path)}"))
+
+    hosts = collect_open_ports(output_dir)
+    services = Counter(f"{port}/{service}" for ports in hosts.values()
+                       for port, service in ports.items())
+    print()
+    print(c(C.BOLD, f"  Open ports: {sum(services.values())} across "
+                    f"{sum(1 for ports in hosts.values() if ports)} host(s)"))
+    for service, count in services.most_common(10):
+        print(c(C.GREEN, f"    {service:<28}") + c(C.DIM, f"{count} host(s)"))
+    print()
+    return 0
+
+
+def diff_open_ports(old_hosts, new_hosts):
+    """Compare two {host: {port: service}} maps.
+
+    Returns {"opened": {host: [port/service]}, "closed": {...},
+    "new_hosts": [...], "missing_hosts": [...]}. Hosts are only compared when
+    both runs saw them up; otherwise they are listed as new or missing.
+    """
+    opened, closed = {}, {}
+    for host in sorted(set(old_hosts) & set(new_hosts)):
+        old_ports, new_ports = old_hosts[host], new_hosts[host]
+        added = sorted(set(new_ports) - set(old_ports))
+        removed = sorted(set(old_ports) - set(new_ports))
+        if added:
+            opened[host] = [f"{port}/{new_ports[port]}" for port in added]
+        if removed:
+            closed[host] = [f"{port}/{old_ports[port]}" for port in removed]
+    return {
+        "opened": opened,
+        "closed": closed,
+        "new_hosts": sorted(set(new_hosts) - set(old_hosts)),
+        "missing_hosts": sorted(set(old_hosts) - set(new_hosts)),
+    }
+
+
+def print_diff(old_dir, new_dir):
+    """Print and save the open-port difference between two output folders."""
+    for directory in (old_dir, new_dir):
+        if not os.path.isdir(directory):
+            print(c(C.RED + C.BOLD, f"  [!] Output folder not found: {directory}"))
+            return 1
+    old_hosts, new_hosts = collect_open_ports(old_dir), collect_open_ports(new_dir)
+    diff = diff_open_ports(old_hosts, new_hosts)
+
+    print(c(C.CYAN + C.BOLD, f"  DIFF — {old_dir}  →  {new_dir}"))
+    print(c(C.DIM, f"  {len(old_hosts)} host(s) up before, {len(new_hosts)} host(s) up now"))
+    sep()
+    if not any(diff.values()):
+        print(c(C.GREEN, "  [+] No differences in open ports."))
+    for host, ports in diff["opened"].items():
+        print(c(C.RED + C.BOLD, f"  + {host:<18}") + c(C.RED, "  newly open: " + "  ".join(ports)))
+    for host, ports in diff["closed"].items():
+        print(c(C.GREEN + C.BOLD, f"  - {host:<18}") + c(C.GREEN, "  now closed: " + "  ".join(ports)))
+    for host in diff["new_hosts"]:
+        ports = "  ".join(f"{p}/{s}" for p, s in sorted(new_hosts[host].items())) or "no open ports"
+        print(c(C.YELLOW + C.BOLD, f"  * {host:<18}") + c(C.YELLOW, f"  new host: {ports}"))
+    for host in diff["missing_hosts"]:
+        print(c(C.DIM, f"  ? {host:<18}  not seen up in the new run (down, filtered, or not scanned)"))
+
+    diff_path = os.path.join(new_dir, "scan-diff.json")
+    with open(diff_path, "w", encoding="utf-8") as f:
+        json.dump({"old": os.path.abspath(old_dir), "new": os.path.abspath(new_dir),
+                   "generated": datetime.now().strftime(LOG_TIME_FORMAT), **diff}, f, indent=2)
+    print()
+    print(c(C.CYAN, f"  [i] Saved: {diff_path}\n"))
+    return 0
+
+
+def handle_review_commands():
+    """Run --status / --diff, which review output folders and never scan."""
+    arguments = [arg for arg in sys.argv[1:] if arg != "--no-color"]
+    if not arguments or arguments[0] not in {"--status", "--diff"}:
+        return
+    global COLORS_ENABLED
+    COLORS_ENABLED = "--no-color" not in sys.argv[1:]
+    command, rest = arguments[0], arguments[1:]
+    if command == "--status":
+        if len(rest) > 1:
+            print("scanrunner: error: usage: scanrunner --status [DIR]", file=sys.stderr)
+            sys.exit(2)
+        sys.exit(print_status(rest[0] if rest else "results"))
+    if len(rest) != 2:
+        print("scanrunner: error: usage: scanrunner --diff OLD_DIR NEW_DIR", file=sys.stderr)
+        sys.exit(2)
+    sys.exit(print_diff(rest[0], rest[1]))
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 #  MAIN
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def main():
     global COLORS_ENABLED
     _save_terminal()
+    handle_topic_help()
+    handle_review_commands()
     args = parse_args()
     COLORS_ENABLED = not args.no_color
     banner()
@@ -2060,6 +2800,9 @@ def main():
 
     output_dir = args.output
     os.makedirs(output_dir, exist_ok=True)
+    # Outcomes logged from here on belong to this run; the summary reconciles
+    # against these only, so leftovers from an earlier run can't hide a target.
+    run_started = run_start_time()
 
     # ── Build target list ─────────────────────────────────────────────────────
     if args.ip:
@@ -2072,6 +2815,9 @@ def main():
             sys.exit(1)
         ips = load_targets(args.file)
         print(c(C.CYAN, f"  File     : {args.file}  ({len(ips)} unique targets)"))
+    if not ips:
+        print(c(C.RED + C.BOLD, "  [!] Target file contains no usable targets."))
+        sys.exit(1)
 
     metadata = load_metadata(args.metadata_csv)
     scope = load_scope(args.scope_file)
@@ -2102,54 +2848,51 @@ def main():
     failed_file    = os.path.join(output_dir, "failed.txt")
     retry_file     = os.path.join(output_dir, "retried.txt")
 
+    def report_path(target):
+        return os.path.join(output_dir, f"{sanitize_filename(target)}.txt")
+
     def write_reports():
         write_inventory(output_dir, ips, metadata, args.html_report)
+
+    def finish():
+        write_reports()
+        print_summary(ips, completed_file, skipped_file, rescanned_file,
+                      not_ping_file, failed_file, output_dir, since=run_started)
 
     # ── Resume — single prompt ────────────────────────────────────────────────
     completed_ips = set()
     if os.path.exists(completed_file) or args.resume:
-        all_done = set()
-        if os.path.exists(completed_file):
-            with open(completed_file, encoding="utf-8") as f:
-                all_done = {line.split("|")[-1].strip() for line in f if line.strip()}
-        all_done.update(ip for ip in ips
-                        if get_file_status(os.path.join(output_dir, f"{sanitize_filename(ip)}.txt")) == "COMPLETE")
+        all_done = previously_completed(ips, output_dir, completed_file)
         if all_done:
             print(c(C.BLUE + C.BOLD, f"  Found {len(all_done)} previously completed IP(s)."))
             if args.resume:
+                ch = "r"
+            elif args.yes:
+                ch = "f"
+            else:
+                ch = safe_input(
+                    c(C.CYAN, "  [r] Resume (skip completed)  [f] Fresh (review all)  -> ")
+                ).lower()
+            if ch == "r":
                 completed_ips = all_done
-                # Backfill completed_file: all_done also includes hosts detected
-                # purely by inspecting existing report files, which may never
-                # have been logged. The audit trail (and the end-of-run
-                # reconciliation check) must be able to account for every one.
-                for ip in completed_ips:
-                    log_to_file(completed_file, ip)
+                # Log each one for this run: all_done includes hosts detected
+                # purely from their report files, which may never have been
+                # logged, and the end-of-run reconciliation only counts
+                # outcomes recorded during this run.
+                for ip in ips:
+                    if ip in completed_ips:
+                        log_to_file(completed_file, ip)
                 print(c(C.GREEN,
                         f"  [+] Resuming — {len(completed_ips)} IP(s) will be skipped.\n"))
             else:
-                if args.yes:
-                    ch = "f"
-                else:
-                    ch = safe_input(
-                        c(C.CYAN, "  [r] Resume (skip completed)  [f] Fresh (review all)  -> ")
-                    ).lower()
-                if ch == "r":
-                    completed_ips = all_done
-                    for ip in completed_ips:
-                        log_to_file(completed_file, ip)
-                    print(c(C.GREEN,
-                            f"  [+] Resuming — {len(completed_ips)} IP(s) will be skipped.\n"))
-                else:
-                    print(c(C.YELLOW, "  [+] Fresh run — all IPs will be reviewed.\n"))
+                print(c(C.YELLOW, "  [+] Fresh run — all IPs will be reviewed.\n"))
 
     pending_ips   = [ip for ip in ips if ip not in completed_ips]
     total_pending = len(pending_ips)
 
     if total_pending == 0:
         print(c(C.GREEN, "  [+] All IPs already completed. Nothing to do."))
-        write_reports()
-        print_summary(ips, completed_file, skipped_file, rescanned_file,
-                      not_ping_file, failed_file, output_dir)
+        finish()
         return
 
     if args.tabs is not None:
@@ -2171,32 +2914,74 @@ def main():
         print(c(C.YELLOW,
                 "  [*] -Pn detected: wrapper ping checks are disabled.\n"))
 
+    def needs_wrapper_ping(target):
+        return not nmap_uses_pn and not args.skip_ping and not is_network_target(target)
+
+    def print_fatal_stop():
+        print(c(C.RED + C.BOLD,
+                "\n  [x] Stopping: Nmap refused to run with these arguments/privileges, so every "
+                "remaining host would fail the same way."))
+        print(c(C.RED, "      Fix the Nmap arguments (or run with the needed privileges) and "
+                       "re-run with --resume. Unscanned targets are listed as unaccounted."))
+
     if args.parallel > 1:
-        parallel_targets = [ip for ip in pending_ips
-                            if get_file_status(os.path.join(
-                                output_dir, f"{sanitize_filename(ip)}.txt")) != "COMPLETE"]
+        # Same decision as a serial --yes run: a complete report is skipped
+        # (and logged, so reconciliation accounts for it); anything else is scanned.
+        parallel_targets = []
+        for ip in pending_ips:
+            if get_file_status(report_path(ip)) == "COMPLETE":
+                log_to_file(skipped_file, ip)
+                print(c(C.YELLOW, f"  [~] Skipped {ip} (complete report already exists)"))
+            else:
+                parallel_targets.append(ip)
         print(c(C.CYAN, f"  [*] Running {len(parallel_targets)} scan(s) with {args.parallel} workers.\n"))
+
+        fatal_seen = threading.Event()
+
+        def scan_one(target):
+            # Once one scan hits a fatal Nmap error, queued scans are not started.
+            # They get no log entry, so the summary reports them as unaccounted.
+            if fatal_seen.is_set():
+                return "CANCELLED", 0, ""
+            if needs_wrapper_ping(target) and not ping_host(target):
+                return "NO_PING", 0, ""
+            status, attempts, detail = run_nmap_quiet(
+                target, report_path(target), args.nmap_extra, nmap_uses_pn, args.retries)
+            if status == "FATAL":
+                fatal_seen.set()
+            return status, attempts, detail
+
+        fatal_detail = None
         with ThreadPoolExecutor(max_workers=args.parallel) as executor:
-            futures = {
-                executor.submit(run_nmap_quiet, ip,
-                                os.path.join(output_dir, f"{sanitize_filename(ip)}.txt"),
-                                args.nmap_extra, nmap_uses_pn, args.retries): ip
-                for ip in parallel_targets
-            }
+            futures = {executor.submit(scan_one, ip): ip for ip in parallel_targets}
             for future in as_completed(futures):
                 ip = futures[future]
-                success, attempts = future.result()
+                status, attempts, detail = future.result()
                 if attempts > 1:
                     log_to_file(retry_file, ip)
-                if success:
+                if status == "COMPLETE":
                     log_to_file(completed_file, ip)
-                    print(c(C.GREEN, f"  [+] Completed {ip} ({attempts} attempt(s))"))
-                else:
+                    open_count = len(parse_open_ports(report_path(ip)))
+                    print(c(C.GREEN, f"  [+] Completed {ip} ({attempts} attempt(s), "
+                                     f"{open_count} open port(s))"))
+                elif status == "DOWN":
+                    log_to_file(not_ping_file, ip)
+                    print(c(C.ORANGE, f"  [-] {ip}: Nmap reports the host down (0 hosts up)"))
+                elif status == "NO_PING":
+                    log_to_file(not_ping_file, ip)
+                    print(c(C.ORANGE, f"  [-] {ip} did not respond to ping; logged as no-ping"))
+                elif status == "FAILED":
                     log_to_file(failed_file, ip)
-                    print(c(C.RED, f"  [x] Failed {ip} after {attempts} attempt(s)"))
-        write_reports()
-        print_summary(ips, completed_file, skipped_file, rescanned_file,
-                      not_ping_file, failed_file, output_dir)
+                    print(c(C.RED, f"  [x] Failed {ip} after {attempts} attempt(s): {detail}"))
+                elif status == "FATAL":
+                    log_to_file(failed_file, ip)
+                    fatal_detail = fatal_detail or detail
+        if fatal_detail:
+            print(c(C.RED + C.BOLD, "\n  [x] Nmap stopped with a fatal error:"))
+            for line in fatal_detail.splitlines():
+                print(c(C.RED, f"      {line}"))
+            print_fatal_stop()
+        finish()
         return
 
     # ── Scan loop ─────────────────────────────────────────────────────────────
@@ -2222,7 +3007,7 @@ def main():
             print(c(C.WHITE + C.BOLD, f"  │  {ip}"))
             print(c(C.CYAN  + C.BOLD, f"  └{'─' * 49}"))
 
-            output_file = os.path.join(output_dir, f"{sanitize_filename(ip)}.txt")
+            output_file = report_path(ip)
 
             # ── Existing scan file ───────────────────────────────────────────
             action = None   # "scan" | "skip"
@@ -2255,8 +3040,7 @@ def main():
                     elif ch == "q":
                         print(c(C.RED + C.BOLD, "\n  Quitting."))
                         restore_terminal()
-                        print_summary(ips, completed_file, skipped_file, rescanned_file,
-                                      not_ping_file, failed_file, output_dir)
+                        finish()
                         sys.exit(0)
                     else:
                         print(c(C.RED, "  [!] Invalid — s / r / m / v / q"))
@@ -2281,20 +3065,20 @@ def main():
             else:
                 print(c(C.DIM, f"\n  Pinging {ip} ..."))
 
-            if (not nmap_uses_pn and not args.skip_ping and not is_network_target(ip)
-                    and not ping_host(ip)):
+            if needs_wrapper_ping(ip) and not ping_host(ip):
                 print(c(C.ORANGE + C.BOLD, f"  [-] {ip} did not respond to ping."))
 
                 # -ok / --skip-no-ping is intentionally opt-in. It changes only
                 # the wrapper ping-failure decision: no prompt, no -Pn fallback.
-                if args.skip_no_ping:
+                # --yes makes the same decision, since nobody can answer the prompt.
+                if args.skip_no_ping or args.yes:
                     log_to_file(not_ping_file, ip)
-                    print(c(C.ORANGE,
-                            f"  [~] -ok enabled: logged {ip} as no-ping and skipped."))
+                    reason = "-ok enabled" if args.skip_no_ping else "--yes"
+                    print(c(C.ORANGE, f"  [~] {reason}: logged {ip} as no-ping and skipped."))
                     done_count += 1
                     continue
 
-                ping_choice = "n" if args.yes else ""
+                ping_choice = ""
                 while not ping_choice:
                     ping_choice = safe_input(
                         c(C.YELLOW, "  Run nmap with -Pn anyway? [y/n]: ")
@@ -2307,13 +3091,10 @@ def main():
                     else:
                         print(c(C.RED, "  [!] Enter y or n."))
                         ping_choice = ""
-                if args.yes:
-                    log_to_file(not_ping_file, ip)
-                    print(c(C.ORANGE, f"  Logged {ip} as no-ping. Skipping."))
                 if ping_choice == "n":
                     done_count += 1
                     continue
-            elif not nmap_uses_pn and not args.skip_ping and not is_network_target(ip):
+            elif needs_wrapper_ping(ip):
                 print(c(C.GREEN, f"  [+] {ip} is alive."))
 
             # ── Run scan ─────────────────────────────────────────────────────
@@ -2326,35 +3107,50 @@ def main():
 
             start  = time.time()
             attempt = 0
+            failure_reason = ""
             while True:
                 result = run_nmap_scan(ip, output_file, args.nmap_extra, use_pn)
+                if result is True:
+                    # Wait up to 2s for nmap to flush the file
+                    for _ in range(4):
+                        if os.path.exists(output_file):
+                            break
+                        time.sleep(0.5)
+                    report_status = get_file_status(output_file)
+                    if report_status not in {"COMPLETE", "DOWN"}:
+                        result = False
+                        failure_reason = REPORT_STATUS_PROBLEMS[report_status]
+                elif result is False:
+                    failure_reason = "Nmap exited with an error"
                 if result is not False or attempt >= args.retries:
                     break
                 attempt += 1
                 log_to_file(retry_file, ip)
-                print(c(C.YELLOW, f"  [~] Retrying {ip} ({attempt}/{args.retries})"))
+                print(c(C.YELLOW, f"  [~] Retrying {ip} ({attempt}/{args.retries}): {failure_reason}"))
             elapsed = round(time.time() - start, 2)
 
             if result == "SKIPPED":
                 log_to_file(skipped_file, ip)
 
+            elif result == "FATAL":
+                log_to_file(failed_file, ip)
+                print_fatal_stop()
+                break
+
             elif result is True:
                 print(c(C.GREEN + C.BOLD, f"\n  [+] Nmap finished {ip} in {elapsed}s"))
-                # Wait up to 2s for nmap to flush the file
-                for _ in range(4):
-                    if os.path.exists(output_file):
-                        break
-                    time.sleep(0.5)
-                if os.path.exists(output_file):
+                if report_status == "DOWN":
+                    log_to_file(not_ping_file, ip)
+                    print(c(C.ORANGE, f"  [-] Nmap reports {ip} down (0 hosts up); "
+                                      "logged as down/no-ping."))
+                    if not use_pn:
+                        print(c(C.DIM, "      Add -Pn if the host blocks Nmap's discovery probes."))
+                else:
                     log_to_file(completed_file, ip)
                     print(c(C.GREEN, f"  [+] Saved report for {ip}"))
                     print_open_ports_oneliner(ip, output_file)
-                else:
-                    print(c(C.YELLOW,
-                            f"  [!] nmap finished but no output file for {ip}"))
-                    log_to_file(failed_file, ip)
             else:
-                print(c(C.RED + C.BOLD, f"\n  [x] Scan failed for {ip}  ({elapsed}s)"))
+                print(c(C.RED + C.BOLD, f"\n  [x] Scan failed for {ip}  ({elapsed}s): {failure_reason}"))
                 log_to_file(failed_file, ip)
 
             done_count += 1
@@ -2364,11 +3160,9 @@ def main():
         print(c(C.RED + C.BOLD, "\n\n  [!] Interrupted. Saving progress..."))
         restore_terminal()
 
-    # Final progress bar — 100% when we get here
+    # Final progress bar — 100% when every target was processed
     progress_bar(done_count, total_pending)
-    write_reports()
-    print_summary(ips, completed_file, skipped_file, rescanned_file,
-                  not_ping_file, failed_file, output_dir)
+    finish()
 
 
 if __name__ == "__main__":
