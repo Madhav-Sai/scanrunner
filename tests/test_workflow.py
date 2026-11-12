@@ -853,7 +853,8 @@ class TabEndToEndTests(EndToEndBase):
             self.env.pop(name, None)
         targets = [f"10.0.0.{i}" for i in range(1, 7)]
         self.scenarios(**{t: {"kind": "up", "ports": [[22, "tcp", "ssh", ""]]} for t in targets})
-        result = self.run_scan("-f", self.targets(*targets), "--tabs", "3", "--skip-ping")
+        result = self.run_scan("-f", self.targets(*targets), "--tabs", "3", "--skip-ping",
+                               "--exclude", "10.0.0.99")
         self.assertEqual(result.returncode, 0, self.last_output)
         self.assertIn("0 in terminal windows, 3 running in background", self.last_output)
         deadline = datetime.now() + timedelta(seconds=60)
@@ -869,6 +870,8 @@ class TabEndToEndTests(EndToEndBase):
             time.sleep(0.1)
         else:
             self.fail("Tab processes did not finish their export transactions")
+        self.assertTrue(all(json.loads(run["config"])["exclusions"] == ["10.0.0.99"]
+                            for run in history["runs"]))
         for index in (1, 2, 3):
             self.assertTrue((self.out / "tabs" / f"tab_{index}_console.log").exists())
         status = run_cli("--status", str(self.out), "--no-color", env=self.env)

@@ -1371,6 +1371,7 @@ OPTION_ALIASES = {
 
 for _name, _description in {
     "dry-run": "Preview argv, impact, privileges and output destinations without DNS or process execution.",
+    "scope-snapshot": "Require execution to match a saved scope, exclusion and DNS-answer snapshot.",
     "json": "Print JSON with --dry-run or a durable-history review command.",
     "engagement": "Set the engagement identifier stored with runs and scope snapshots.",
     "process-timeout": "Bound each scanner process in seconds (default 600). Partial evidence is retained.",
@@ -1665,6 +1666,8 @@ def parse_args():
                         help="Disable ANSI color output")
     workflow_group.add_argument("--scope-file", metavar="FILE",
                         help="Allowlist file; refuse targets outside this scope")
+    workflow_group.add_argument("--scope-snapshot", metavar="FILE",
+                        help="Require scope, exclusions and DNS answers to match a saved local snapshot")
     workflow_group.add_argument("--dry-run", action="store_true",
                         help="Preview commands and impact without DNS, processes, or output writes")
     workflow_group.add_argument("--json", action="store_true", help="Emit machine-readable dry-run output")
@@ -2810,6 +2813,10 @@ def _build_tab_command(args):
         cmd.append("--no-color")
     if args.scope_file:
         cmd.extend(["--scope-file", args.scope_file])
+    if getattr(args, "scope_snapshot", None):
+        cmd.extend(["--scope-snapshot", args.scope_snapshot])
+    for exclusion in getattr(args, "_scope_exclusions", getattr(args, "exclude", [])):
+        cmd.extend(["--exclude", exclusion])
     if getattr(args, "allow_intrusive", False):
         cmd.extend(["--allow-intrusive", "--authorization-note", args.authorization_note])
     cmd.extend(["--engagement", getattr(args, "engagement", "default"),
@@ -2949,6 +2956,28 @@ def _launch_tabs(args, pending_ips, output_dir, tab_count):
     os.makedirs(tabs_dir, exist_ok=True)
     launched_at = run_start_time()
     base_size, remainder = divmod(len(pending_ips), tab_count)
+    private_parts = {}
+    if ACTIVE_STORE is not None and ACTIVE_SCOPE is not None:
+        snapshot_job = ACTIVE_STORE.wait_claim("tab-scope-" + ACTIVE_STORE.run_id)
+        if snapshot_job is None:
+            raise ValueError("Tab preparation was cancelled")
+        allowed_file = os.path.join(snapshot_job["directory"], "scope.txt")
+        snapshot_file = os.path.join(snapshot_job["directory"], "scope.json")
+        with open(allowed_file, "x", encoding="utf-8") as file:
+            file.write("\n".join(ACTIVE_SCOPE.scope) + "\n")
+        with open(snapshot_file, "x", encoding="utf-8") as file:
+            json.dump({"scope": ACTIVE_SCOPE.scope, "exclusions": ACTIVE_SCOPE.exclusions,
+                       "answers": ACTIVE_SCOPE.answers}, file)
+        position = 0
+        for index in range(1, tab_count + 1):
+            size = base_size + (1 if index <= remainder else 0)
+            private_parts[index] = os.path.join(snapshot_job["directory"], f"targets-{index}.txt")
+            with open(private_parts[index], "x", encoding="utf-8") as file:
+                file.write("\n".join(pending_ips[position:position + size]) + "\n")
+            position += size
+        ACTIVE_STORE.finish_job(snapshot_job, "Prepared", None, False, ["prepare-scoped-tabs"])
+        args.scope_file = allowed_file
+        args.scope_snapshot = snapshot_file
     base_command = _build_tab_command(args)
     cwd = os.getcwd()
     manifest_lines = []
@@ -2966,7 +2995,7 @@ def _launch_tabs(args, pending_ips, output_dir, tab_count):
         with open(part_file, "w", encoding="utf-8") as f:
             f.write("\n".join(part_targets) + "\n")
 
-        command = [*base_command, "-f", part_file, "-o", output_dir]
+        command = [*base_command, "-f", private_parts.get(index, part_file), "-o", output_dir]
         title = f"scanrunner tab {index}/{tab_count}"
 
         if sys.platform == "win32":
@@ -3418,6 +3447,7 @@ def main():
         exclusions = list(args.exclude)
         if args.exclude_file:
             exclusions.extend(load_targets(args.exclude_file))
+        args._scope_exclusions = exclusions
         # Exclusions are enforced by ScopeGuard, including CIDR overlap. Remove
         # duplicate scanner exclusion flags so mutable files cannot change scope.
         if args.exclude or args.exclude_file:
@@ -3453,6 +3483,13 @@ def main():
             return
         try:
             ACTIVE_SCOPE = ScopeGuard(requested, explicit_scope, exclusions)
+            if args.scope_snapshot:
+                with open(args.scope_snapshot, encoding="utf-8") as file:
+                    snapshot = json.load(file)
+                if sorted(snapshot["scope"]) != sorted(ACTIVE_SCOPE.scope) or sorted(snapshot["exclusions"]) != sorted(exclusions):
+                    raise ValueError("Authorization changed since the scope snapshot")
+                if any(snapshot["answers"].get(target) != answers for target, answers in ACTIVE_SCOPE.answers.items()):
+                    raise ValueError("DNS answers changed since the scope snapshot")
         except ValueError as error:
             print(f"scanrunner: Refusing targets outside --scope-file or invalid authorization: {error}", file=sys.stderr)
             raise SystemExit(1)

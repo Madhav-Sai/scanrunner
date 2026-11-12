@@ -36,7 +36,7 @@ OPTIONS = [
 OPTIONS.extend([
     "--dry-run", "--json", "--engagement", "--process-timeout", "--global-concurrency",
     "--subnet-concurrency", "--scan-rate", "--allow-intrusive", "--authorization-note",
-    "--history", "--verify-evidence",
+    "--history", "--verify-evidence", "--scope-snapshot",
 ])
 
 

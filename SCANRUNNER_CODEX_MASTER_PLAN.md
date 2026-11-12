@@ -83,7 +83,7 @@ Checkboxes are intentionally unchecked. Assign actual issue links, commit hashes
 - [x] **SR-P0-09 â€” Raw evidence preservation.** Save exact stdout/stderr, original XML, exit status, command argv with secrets redacted, scanner version, UTC timestamps, and relevant config in immutable run-specific paths. Hash raw evidence (SHA-256). **Accept:** generation/retest cannot change earlier run artifacts; missing/corrupt artifacts are flagged.
 - [x] **SR-P0-10 â€” Secure local data handling.** Prevent path traversal, unsafe XML entity expansion, command injection, log credential leaks, excessive filesystem permissions, and accidental exports of secrets or personal data. **Accept:** negative security tests and basic dependency checks pass.
 - [x] **SR-P0-11 â€” Backwards compatibility.** Document current CLI syntax and defaults before refactoring; provide migration/back-compat behavior for output paths and metadata. **Accept:** existing CLI regression suite and packaging tests pass.
-- [ ] **SR-P0-12 â€” CI quality gate.** Add lint/static analysis, automated tests, fixture-based integration tests, and packaging checks. **Accept:** CI is reproducible without external scan targets or mandatory optional tools.
+- [x] **SR-P0-12 â€” CI quality gate.** Add lint/static analysis, automated tests, fixture-based integration tests, and packaging checks. **Accept:** CI is reproducible without external scan targets or mandatory optional tools.
 
 ### P1 â€” Accurate inventory and everyday VAPT productivity
 

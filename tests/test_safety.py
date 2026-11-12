@@ -87,6 +87,23 @@ class ScopeSafetyTests(unittest.TestCase):
                 dns.assert_not_called()
                 self.assertFalse(output.exists())
 
+    def test_saved_dns_snapshot_rejects_changes_before_scanner_launch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            scope = Path(tmp) / "scope.txt"
+            snapshot = Path(tmp) / "scope.json"
+            scope.write_text("fixture.invalid\n")
+            snapshot.write_text(json.dumps({"scope": ["fixture.invalid"], "exclusions": [],
+                                            "answers": {"fixture.invalid": ["192.0.2.1"]}}))
+            argv = ["scanrunner", "-i", "fixture.invalid", "--scope-file", str(scope),
+                    "--scope-snapshot", str(snapshot)]
+            with mock.patch("sys.argv", argv), \
+                    mock.patch.object(sr, "resolve_scope_addresses", return_value=(["198.51.100.1"], "fixture")), \
+                    mock.patch.object(sr, "scanner_version") as version, \
+                    self.assertRaises(SystemExit) as result:
+                sr.main()
+            self.assertEqual(result.exception.code, 1)
+            version.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
