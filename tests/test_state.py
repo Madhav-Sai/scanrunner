@@ -1,6 +1,7 @@
 import importlib.util
 from concurrent.futures import ThreadPoolExecutor
 import json
+import os
 import subprocess
 from pathlib import Path
 import sys
@@ -17,6 +18,28 @@ spec.loader.exec_module(sr)
 
 
 class DurableEvidenceTests(unittest.TestCase):
+    def test_lock_uses_the_same_byte_for_new_and_existing_lock_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = str(Path(tmp) / "inventory")
+            for _ in range(2):
+                with sr._FileLock(path) as lock:
+                    self.assertEqual(os.lseek(lock.file.fileno(), 0, os.SEEK_CUR), 0)
+
+    def test_corrupt_inventory_is_flagged_and_preserved(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "open-ports-inventory.json"
+            path.write_bytes(b"{partial")
+            with self.assertRaises(ValueError):
+                sr.write_inventory(tmp, [], {}, False)
+            self.assertEqual(path.read_bytes(), b"{partial")
+
+    def test_case_equivalent_hosts_cannot_claim_colliding_cache_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            first = sr.RunStore(tmp)
+            second = sr.RunStore(tmp)
+            self.assertIsNotNone(first.claim("Fixture.invalid"))
+            self.assertIsNone(second.claim("fixture.invalid"))
+
     def test_duplicate_claims_and_crashed_worker_recovery(self):
         with tempfile.TemporaryDirectory() as tmp:
             stores = [sr.RunStore(tmp, {"tool": "nmap"}) for _ in range(4)]
@@ -95,6 +118,16 @@ class DurableEvidenceTests(unittest.TestCase):
             second.claim("198.51.100.1")
             with self.assertRaises(sr.CapacityBusy):
                 first.claim("203.0.113.1")
+
+    def test_same_second_legacy_logs_cannot_override_latest_durable_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            first = sr.RunStore(tmp, {"targets": ["192.0.2.1"]})
+            with mock.patch.object(sr, "ACTIVE_STORE", first):
+                sr.log_to_file(str(Path(tmp) / "completed.txt"), "192.0.2.1")
+            second = sr.RunStore(tmp, {"targets": ["192.0.2.1"]})
+            with mock.patch.object(sr, "ACTIVE_STORE", second):
+                sr.log_to_file(str(Path(tmp) / "failed.txt"), "192.0.2.1")
+            self.assertEqual(sr.latest_outcomes(tmp), {"192.0.2.1": "failed"})
 
     def test_cancellation_retains_partial_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:

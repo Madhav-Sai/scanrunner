@@ -196,7 +196,7 @@ class _FileLock:
         self.file = None
 
     def __enter__(self):
-        self.file = open(self.path, 'a+b')
+        self.file = open(self.path, 'a+b', buffering=0)
         self.file.seek(0)
         if not self.file.read(1):
             self.file.write(b'0')
@@ -277,12 +277,37 @@ def read_logged_ips(path, since=None):
             if since is None or stamp >= since}
 
 
-def latest_outcomes(output_dir, since=None, log_paths=None):
+def latest_outcomes(output_dir, since=None, log_paths=None, run_id=None):
     """Return {target: outcome} using each target's most recent outcome.
 
     A target that failed last week and completed today is "completed", not
     both. `log_paths` optionally overrides the {outcome: path} mapping.
     """
+    database_path = Path(output_dir).resolve() / ".scanrunner" / "scanrunner.sqlite3"
+    if database_path.is_file():
+        database = sqlite3.connect(database_path.as_uri() + "?mode=ro", uri=True, timeout=30)
+        try:
+            query = "SELECT t.requested,t.outcome FROM run_targets t JOIN runs r ON t.run_id=r.id"
+            parameters = []
+            if run_id:
+                query += " WHERE r.id=?"
+                parameters.append(run_id)
+            elif since:
+                query += " WHERE r.started>=?"
+                parameters.append(since.astimezone(timezone.utc).isoformat())
+            rows = database.execute(query + " ORDER BY r.rowid DESC", parameters).fetchall()
+        finally:
+            database.close()
+        names = {"COMPLETE": "completed", "Skipped": "skipped",
+                 "Unreachable or no discovery response": "no_ping", "FAILED": "failed",
+                 "Interrupted": "failed", "TIMEOUT": "failed", "INCONCLUSIVE": "failed"}
+        seen, result = set(), {}
+        for target, outcome in rows:
+            if target not in seen:
+                seen.add(target)
+                if outcome in names:
+                    result[target] = names[outcome]
+        return result
     paths = log_paths or {name: os.path.join(output_dir, filename)
                           for name, filename in OUTCOME_LOGS}
     priority = {name: rank for rank, (name, _) in enumerate(OUTCOME_LOGS)}
@@ -712,6 +737,10 @@ class RunStore:
         job_id = uuid.uuid4().hex
         directory = os.path.join(self.storage_directory, "runs", self.run_id, job_id)
         now = time.time()
+        try:
+            claim_target = str(ipaddress.ip_network(target, strict=False))
+        except ValueError:
+            claim_target = target.lower().rstrip(".")
         subnets = set()
         subjects = self.config.get("scope", []) if self.config.get("tool") == "nxc" else [target]
         for subject in subjects:
@@ -731,7 +760,7 @@ class RunStore:
                                  (utc_now(), row["job_id"]))
                 database.execute("INSERT INTO job_events VALUES (?, ?, 'Running', 'Interrupted')", (row["job_id"], utc_now()))
             database.execute("DELETE FROM claims WHERE expires < ?", (now,))
-            if database.execute("SELECT 1 FROM claims WHERE target=?", (target,)).fetchone():
+            if database.execute("SELECT 1 FROM claims WHERE target=?", (claim_target,)).fetchone():
                 return None
             active = database.execute("SELECT jobs.subnets, runs.config FROM jobs JOIN runs ON jobs.run_id=runs.id WHERE jobs.outcome='Running'").fetchall()
             policies = [json.loads(row["config"]) for row in active]
@@ -746,7 +775,7 @@ class RunStore:
                 raise CapacityBusy("Per-subnet scanner concurrency ceiling reached")
             try:
                 database.execute("INSERT INTO claims VALUES (?, ?, ?, ?)",
-                                 (target, fingerprint, job_id, now + self.config.get("timeout", 600) + 60))
+                                 (claim_target, fingerprint, job_id, now + self.config.get("timeout", 600) + 60))
             except sqlite3.IntegrityError:
                 return None
             database.execute("INSERT INTO jobs (id,run_id,target,fingerprint,started,outcome,directory) VALUES (?,?,?,?,?,'Running',?)",
@@ -2626,8 +2655,10 @@ def write_inventory(output_dir, targets, metadata, write_html):
             try:
                 with open(json_path, encoding="utf-8") as file:
                     rows = json.load(file)
-            except (json.JSONDecodeError, OSError):
-                rows = []
+            except (json.JSONDecodeError, OSError) as error:
+                raise ValueError("Inventory cache is unreadable or corrupt; preserve it and rebuild from evidence") from error
+            if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+                raise ValueError("Inventory cache must contain a list of inventory records")
         rows = [row for row in rows if row.get("target") not in targets_set]
         rows.extend(new_rows)
 
@@ -2663,7 +2694,7 @@ def print_summary(ips, completed_file, skipped_file, rescanned_file,
     outcomes = latest_outcomes(output_dir, since=since, log_paths={
         "completed": completed_file, "skipped": skipped_file,
         "no_ping": not_ping_file, "failed": failed_file,
-    })
+    }, run_id=ACTIVE_STORE.run_id if ACTIVE_STORE is not None else None)
     outcomes = {target: outcome for target, outcome in outcomes.items() if target in targets}
 
     def with_outcome(name):
