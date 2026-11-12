@@ -1524,6 +1524,12 @@ def preprocess_argv(argv):
     index = 0
     while index < len(argv):
         token = argv[index]
+        # Python 3.10 argparse still abbreviates single-dash long options even
+        # with allow_abbrev=False. Keep Nmap's -n out of argparse entirely.
+        if token == "-n" and not nxc_mode:
+            passthrough.append(token)
+            index += 1
+            continue
         if nxc_mode:
             # NetExec module options: -o KEY=VALUE [KEY=VALUE ...]
             if token == "-o" and index + 1 < len(argv) and "=" in argv[index + 1] \

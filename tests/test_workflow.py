@@ -122,6 +122,10 @@ def parse(*argv):
 
 class ArgumentConflictTests(unittest.TestCase):
     def test_nmap_n_flag_passes_through_anywhere(self):
+        wrapper, passthrough, error = sr.preprocess_argv(["-i", "192.0.2.1", "-n"])
+        self.assertNotIn("-n", wrapper)
+        self.assertEqual(passthrough, ["-n"])
+        self.assertIsNone(error)
         for argv in (["-f", "t.txt", "-n", "-sV"], ["-f", "t.txt", "-sV", "-n"],
                      ["-i", "10.0.0.1", "-n"]):
             with self.subTest(argv=argv):
