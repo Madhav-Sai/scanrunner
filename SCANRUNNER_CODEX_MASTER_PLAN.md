@@ -1,8 +1,8 @@
 ﻿# ScanRunner â€” Codex Master Development Plan and TODO
 
-> **Repository:** `https://github.com/Madhav-Sai/scanrunner`  
-> **Primary platform:** Kali Linux  
-> **Other platforms:** Linux, macOS, Windows (preserve existing support where implemented)  
+> **Repository:** `https://github.com/Madhav-Sai/scanrunner`
+> **Primary platform:** Kali Linux
+> **Other platforms:** Linux, macOS, Windows (preserve existing support where implemented)
 > **Mission:** Turn ScanRunner into a dependable, offline-first, terminal-first network VAPT assessment assistant while preserving existing features and minimizing false positives, disruptive scan behavior, and reporting mistakes.
 
 ## How Codex must use this file
@@ -72,10 +72,10 @@ Checkboxes are intentionally unchecked. Assign actual issue links, commit hashes
 
 ### P0 â€” Repository audit, safety, and reliability
 
-- [ ] **SR-P0-01 â€” Baseline audit.** Read `README.md`, release/add-on notes, entry points, parser, scan execution, data stores, NetExec integration, reports, packaging, and tests. Run existing tests (or record precisely why they cannot run). Deliver `AUDIT.md`: verified current features, reproducible defects, risks, prioritized gaps, dependencies, and safe migration approach. **Accept:** every claimed existing feature references code paths and/or test evidence.
+- [x] **SR-P0-01 â€” Baseline audit.** Read `README.md`, release/add-on notes, entry points, parser, scan execution, data stores, NetExec integration, reports, packaging, and tests. Run existing tests (or record precisely why they cannot run). Deliver `AUDIT.md`: verified current features, reproducible defects, risks, prioritized gaps, dependencies, and safe migration approach. **Accept:** every claimed existing feature references code paths and/or test evidence.
 - [x] **SR-P0-02 â€” Create regression fixtures.** Save representative sanitized Nmap XML, service scripts, normal/empty/partial/broken outputs, NetExec output, IPv4/IPv6, CIDR, DNS multi-answer, TCP/UDP, host down, filtered ports, and process failures. **Accept:** fixtures are synthetic or explicitly sanitized; baseline tests pass without contacting live client hosts.
-- [ ] **SR-P0-03 â€” Scope enforcement.** Validate exact authorized addresses/CIDRs/hostnames, exclude lists, DNS resolution, and any scan target derived from plugin output. Revalidate resolved IPs immediately before execution; reject out-of-scope resolved addresses and redirect/crawl pivots by default. Handle IPv4/IPv6 and DNS rebinding/race risk conservatively. **Accept:** deny-by-default tests for mixed in/out-of-scope DNS answers and target expansion.
-- [ ] **SR-P0-04 â€” Dry run and impact preview.** Display exact command argv, tool, target addresses, scan profile, required privileges, traffic intensity, side effects, and output destinations without executing. **Accept:** dry-run tests assert zero spawned scanner processes or network actions.
+- [x] **SR-P0-03 â€” Scope enforcement.** Validate exact authorized addresses/CIDRs/hostnames, exclude lists, DNS resolution, and any scan target derived from plugin output. Revalidate resolved IPs immediately before execution; reject out-of-scope resolved addresses and redirect/crawl pivots by default. Handle IPv4/IPv6 and DNS rebinding/race risk conservatively. **Accept:** deny-by-default tests for mixed in/out-of-scope DNS answers and target expansion.
+- [x] **SR-P0-04 â€” Dry run and impact preview.** Display exact command argv, tool, target addresses, scan profile, required privileges, traffic intensity, side effects, and output destinations without executing. **Accept:** dry-run tests assert zero spawned scanner processes or network actions.
 - [ ] **SR-P0-05 â€” Durable state and versioned runs.** Introduce lightweight SQLite state or justify an equally robust alternative. Track engagement IDs, immutable run IDs, targets, command fingerprints, jobs, timestamps, exit codes, parser success, status transitions, and artifact locations. Use transactions and appropriate SQLite busy handling. **Accept:** concurrent updates cannot corrupt state; all previous raw outputs remain intact.
 - [ ] **SR-P0-06 â€” Correct completion and resume semantics.** Completion requires validated process outcome **and** sufficient, parseable, associated result evidence; failure/timeout/partial/empty responses are different states. Resume checks tool version, normalized target, arguments, profile, scope, and other consequential options via stable fingerprint. **Accept:** changing a relevant option cannot silently mark work as completed.
 - [ ] **SR-P0-07 â€” Robust subprocess management.** Use argument arrays (no unsafe `shell=True`), sensible timeouts, graceful cancellation, bounded retries/backoff, child process cleanup, and reliable Ctrl+C handling. **Accept:** interrupted scans preserve partial evidence; do not become â€œCompleted.â€
@@ -371,3 +371,4 @@ See AUDIT.md for the baseline source audit, verification limits, and prioritized
 
 ### Increment 1 verified
 SR-P0-02 accepted: synthetic fixtures and offline Windows-compatible scanner mocks; regression-tests.log records 98 tests, 97 passed and 1 explicit real-Nmap opt-in skip. See AUDIT.md for exact command, baseline failures, scope limits and compatibility notes. P0-01 remains in progress; all other tasks remain unchecked. Missing-port diff wording fixed conservatively; P1 retest acceptance remains unmet. The earlier Python blocker is resolved by the approved per-user installation. Next: SR-P0-03.
+

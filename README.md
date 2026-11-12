@@ -902,3 +902,18 @@ Port diffs report removed entries as **no longer observed open**. Scan coverage
 has not been proved equivalent, so this is not proof of closure or remediation.
 For JSON compatibility, the `closed` key remains; `closed_interpretation` and
 `coverage_comparability` explain its limits.
+
+## Scope and impact preview
+
+Use `scanrunner -i 192.0.2.10 --dry-run --json -sV` to inspect planned commands,
+impact, privileges and output paths without DNS queries or scanner processes.
+Hostname addresses require validation at execution. Use `--scope-file scope.txt`
+for an engagement allowlist. Empty scopes and mixed authorized/unauthorized DNS
+answers are refused. Without a scope file, explicit requested targets form the
+allowlist. DNS answers are checked again and pinned before scanner execution.
+Exclusion overlap rejects the requested range. Split ranges around exclusions.
+
+Scanner arguments and NSE scripts must be reviewed for scope preservation.
+Unreviewed scripts and NetExec modules are refused. Credential operations require
+`--allow-intrusive --authorization-note "Engagement authorization reference"`.
+Legacy broad `vuln`, `full-fast` and `web-enum` profiles currently fail this review.

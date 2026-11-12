@@ -327,7 +327,7 @@ def has_nmap_option(nmap_extra, option):
 
 def redact_command(command):
     """Return a display-safe command without credential values."""
-    sensitive_options = {"-p", "--password", "-H", "--hash", "--aesKey", "--key"}
+    sensitive_options = {"-u", "--username", "-p", "--password", "-H", "--hash", "--aesKey", "--key"}
     redacted = []
     hide_next = False
     for token in command:
@@ -359,7 +359,7 @@ def load_metadata(path):
 
 def load_scope(path):
     if not path:
-        return []
+        return None
     try:
         with open(path, encoding="utf-8-sig") as file:
             return [cleaned for line in file if (cleaned := strip_inline_comment(line))]
@@ -374,7 +374,9 @@ def _scope_networks(scope):
         try:
             networks.append(ipaddress.ip_network(item, strict=False))
         except ValueError:
-            pass   # hostname entry — matched by name, not by address
+            interval = parse_last_octet_range(item)
+            if interval:
+                networks.extend(ipaddress.summarize_address_range(*interval))
     return networks
 
 
@@ -405,8 +407,10 @@ def target_in_scope(target, scope, resolver=None):
     when it is listed by name, or when it resolves to an in-scope address;
     an unresolvable hostname is refused. Anything else is refused.
     """
-    if not scope or target in scope:
-        return True
+    if scope is None:
+        scope = [target]
+    if not scope:
+        return False
     networks = _scope_networks(scope)
     try:
         network = ipaddress.ip_network(target, strict=False)
@@ -423,13 +427,145 @@ def target_in_scope(target, scope, resolver=None):
 
     if not re.fullmatch(r"[A-Za-z0-9._-]+", target):
         return False
-    if target.lower() in {item.lower() for item in scope}:
-        return True
-    resolved, _ = (resolver or resolve_scan_target)(target, timeout=5)
+    named = target.lower().rstrip(".") in {item.lower().rstrip(".") for item in scope}
+    resolved, _ = (resolver or resolve_scope_addresses)(target, timeout=5)
+    addresses = resolved if isinstance(resolved, list) else [resolved]
     try:
-        return _address_in_scope(ipaddress.ip_address(resolved), networks)
+        parsed = [ipaddress.ip_address(value) for value in addresses]
+        return bool(parsed) and all(named or _address_in_scope(value, networks) for value in parsed)
     except ValueError:
         return False
+
+
+def resolve_scope_addresses(target, timeout=5):
+    """Resolve every A/AAAA answer with a bounded wait and no fallback hostname."""
+    result = []
+    def lookup():
+        try:
+            result.extend(dict.fromkeys(str(ipaddress.ip_address(info[4][0]))
+                          for info in socket.getaddrinfo(target, None, type=socket.SOCK_STREAM)))
+        except (OSError, ValueError):
+            pass
+    worker = threading.Thread(target=lookup, daemon=True)
+    worker.start()
+    worker.join(timeout)
+    if worker.is_alive():
+        return [], "DNS lookup timed out"
+    return result, "Resolved all addresses" if result else "DNS lookup failed"
+
+
+class ScopeGuard:
+    """Validate requested scope and pin DNS answers for each scanner invocation."""
+    def __init__(self, targets, scope, exclusions=(), resolver=None):
+        self.scope = list(targets) if scope is None else list(scope)
+        self.exclusions = list(exclusions)
+        self.resolver = resolver or resolve_scope_addresses
+        self.answers = {}
+        for entry in self.scope + self.exclusions:
+            if not self._valid_entry(entry):
+                raise ValueError(f"Invalid scope entry: {entry}")
+        if not self.scope:
+            raise ValueError("Authorized scope is empty")
+        for target in targets:
+            self.destinations(target)
+
+    @staticmethod
+    def _valid_entry(value):
+        try:
+            ipaddress.ip_network(value, strict=False)
+            return True
+        except ValueError:
+            return bool(parse_last_octet_range(value) or
+                        re.fullmatch(r"(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9.])?", value))
+
+    def _resolve(self, hostname):
+        values, message = self.resolver(hostname, timeout=5)
+        if not values or not isinstance(values, list):
+            raise ValueError(f"Cannot validate DNS for {hostname}: {message}")
+        return sorted({str(ipaddress.ip_address(value)) for value in values})
+
+    def destinations(self, target):
+        if not self._valid_entry(target):
+            raise ValueError(f"Invalid scan target: {target}")
+        networks = _scope_networks(self.scope)
+        named = target.lower().rstrip(".") in {item.lower().rstrip(".") for item in self.scope}
+        try:
+            requested = [ipaddress.ip_network(target, strict=False)]
+            destinations = [target]
+        except ValueError:
+            interval = parse_last_octet_range(target)
+            if interval:
+                requested = [ipaddress.ip_network(str(ipaddress.ip_address(value)))
+                             for value in range(int(interval[0]), int(interval[1]) + 1)]
+                destinations = [target]
+            else:
+                destinations = self._resolve(target)
+                if target in self.answers and destinations != self.answers[target]:
+                    raise ValueError(f"DNS answers changed for {target}; authorize a new run")
+                requested = [ipaddress.ip_network(value) for value in destinations]
+                if named:
+                    networks = networks + requested
+        if not all(any(net.version == allowed.version and net.subnet_of(allowed)
+                       for allowed in networks) for net in requested):
+            raise ValueError(f"Target outside authorized scope: {target}")
+        denied = _scope_networks(self.exclusions)
+        for exclusion in self.exclusions:
+            if exclusion.lower().rstrip(".") == target.lower().rstrip("."):
+                raise ValueError(f"Excluded target: {target}")
+            try:
+                ipaddress.ip_network(exclusion, strict=False)
+            except ValueError:
+                denied.extend(ipaddress.ip_network(value) for value in self._resolve(exclusion))
+        if any(net.version == excluded.version and net.overlaps(excluded)
+               for net in requested for excluded in denied):
+            raise ValueError(f"Target overlaps exclusions: {target}")
+        if not parse_last_octet_range(target) and not _is_ip_literal(target) and "/" not in target:
+            self.answers[target] = destinations
+        return destinations
+
+
+ACTIVE_SCOPE = None
+
+
+def validate_scan_options(options, nxc=False, allow_intrusive=False):
+    """Reject extra targets, unreviewed scripts, and scope-extending options."""
+    if nxc:
+        value_options = {"-u", "--username", "-p", "--password", "-H", "--hash", "--port", "--timeout", "-t"}
+        flags = {"--local-auth", "--continue-on-success", "--no-progress"}
+    else:
+        value_options = {"-p", "--top-ports", "--host-timeout", "--max-retries", "--max-rate",
+                         "--min-rate", "--scan-delay", "--max-scan-delay", "--initial-rtt-timeout",
+                         "--min-rtt-timeout", "--max-rtt-timeout", "--max-parallelism", "--min-parallelism",
+                         "--max-hostgroup", "--min-hostgroup", "--stats-every", "--version-intensity"}
+        flags = {"-6", "-Pn", "-n", "-sV", "-sS", "-sT", "-sU", "-sn", "-sL", "-O", "-r", "-F",
+                 "--open", "--reason", "--version-light", "--version-all", "--osscan-limit",
+                 "--osscan-guess", "--disable-arp-ping", "--send-ip", "--send-eth", "--unprivileged",
+                 "--privileged", "--defeat-rst-ratelimit", "--defeat-icmp-ratelimit"}
+    approved_scripts = {"http-title", "http-headers", "ssl-enum-ciphers", "smb-os-discovery",
+                        "smb-protocols", "smb-security-mode", "rdp-enum-encryption", "rdp-ntlm-info"}
+    index = 0
+    while index < len(options):
+        token = options[index]
+        option, equal, value = token.partition("=")
+        if option == "--script" and not nxc:
+            if not equal:
+                index += 1
+                value = options[index] if index < len(options) else ""
+            if not value or not set(value.split(",")) <= approved_scripts:
+                raise ValueError("NSE selection contains an unreviewed or scope-extending script")
+        elif option in value_options:
+            if not equal:
+                index += 1
+                value = options[index] if index < len(options) else ""
+            if not value or value.startswith("-"):
+                raise ValueError(f"Missing or invalid value for {option}")
+            if nxc and option in {"-u", "--username", "-p", "--password", "-H", "--hash"} and not allow_intrusive:
+                raise ValueError("Credential operations require --allow-intrusive and --authorization-note")
+        elif token in flags or (not nxc and re.fullmatch(r"-(?:v+|d+|T[0-5]|p[0-9,U:T,-]+)", token)):
+            pass
+        else:
+            raise ValueError(f"Unreviewed scanner argument or extra target: {token}")
+        index += 1
 
 
 HELP_TOPICS = {
@@ -897,6 +1033,12 @@ def parse_args():
                         help="Disable ANSI color output")
     workflow_group.add_argument("--scope-file", metavar="FILE",
                         help="Allowlist file; refuse targets outside this scope")
+    workflow_group.add_argument("--dry-run", action="store_true",
+                        help="Preview commands and impact without DNS, processes, or output writes")
+    workflow_group.add_argument("--json", action="store_true", help="Emit machine-readable dry-run output")
+    workflow_group.add_argument("--allow-intrusive", action="store_true",
+                        help="Opt in to explicitly authorized credential operations")
+    workflow_group.add_argument("--authorization-note", help="Record the authorization for credential operations")
     workflow_group.add_argument("--retries", type=int, default=0, metavar="N",
                         help="Retry failed scans up to N times")
     workflow_group.add_argument("--parallel", type=int, default=1, metavar="N",
@@ -993,6 +1135,8 @@ def parse_args():
         nmap_extra.extend(["--excludefile", args.exclude_file])
     args.nmap_extra = nmap_extra   # list of strings, used directly in _build_nmap_command
     args.nmap_args  = " ".join(nmap_extra)   # human-readable display only
+    if args.allow_intrusive and not args.authorization_note:
+        parser.error("--allow-intrusive requires --authorization-note")
     if args.output is None:
         args.output = "." if args.nxc else "results"
     return args
@@ -1325,6 +1469,17 @@ def uses_anonymous_nxc_credentials(options):
 
 
 def run_nxc(binary, protocol, target_source, targets, nxc_extra, queries, output_dir):
+    if ACTIVE_SCOPE is not None:
+        pinned = [address for target in targets for address in ACTIVE_SCOPE.destinations(target)]
+        with tempfile.TemporaryDirectory(prefix="scanrunner-scope-") as temporary:
+            source = os.path.join(temporary, "targets.txt")
+            with open(source, "x", encoding="utf-8") as file:
+                file.write("\n".join(pinned) + "\n")
+            return _run_nxc_command(binary, protocol, source, targets, nxc_extra, queries, output_dir)
+    return _run_nxc_command(binary, protocol, target_source, targets, nxc_extra, queries, output_dir)
+
+
+def _run_nxc_command(binary, protocol, target_source, targets, nxc_extra, queries, output_dir):
     """Run NetExec with live output, then build table exports."""
     if queries and protocol.lower() not in {"smb", "rdp"}:
         print(c(C.YELLOW,
@@ -1399,12 +1554,14 @@ def run_nxc(binary, protocol, target_source, targets, nxc_extra, queries, output
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def ping_host(ip):
+    if ACTIVE_SCOPE is not None:
+        ip = ACTIVE_SCOPE.destinations(ip)[0]
     if sys.platform == "win32":
         cmd = ["ping", "-n", "1", "-w", "1000", ip]
     else:
         timeout = "1000" if sys.platform == "darwin" else "1"
         cmd = ["ping", "-c", "1", "-W", timeout, ip]
-    r = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    r = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
     return r.returncode == 0
 
 
@@ -1651,7 +1808,13 @@ def _build_nmap_command(target, output_file, nmap_extra, use_pn=False):
         cmd.extend(nmap_extra)
 
     xml_file = f"{os.path.splitext(output_file)[0]}.xml"
-    cmd.extend(["-oN", output_file, "-oX", xml_file, "--", target])
+    destinations = ACTIVE_SCOPE.destinations(target) if ACTIVE_SCOPE is not None else [target]
+    versions = {ipaddress.ip_address(address).version for address in destinations if _is_ip_literal(address)}
+    if versions == {4, 6}:
+        raise ValueError("Mixed IPv4/IPv6 hostname answers require separate address targets")
+    if versions == {6} or (":" in target and "/" in target):
+        cmd.append("-6")
+    cmd.extend(["-oN", output_file, "-oX", xml_file, "--", *destinations])
 
     return cmd
    
@@ -2218,6 +2381,8 @@ def _build_tab_command(args):
         cmd.append("--no-color")
     if args.scope_file:
         cmd.extend(["--scope-file", args.scope_file])
+    if getattr(args, "allow_intrusive", False):
+        cmd.extend(["--allow-intrusive", "--authorization-note", args.authorization_note])
     if args.metadata_csv:
         cmd.extend(["--metadata-csv", args.metadata_csv])
     if args.html_report:
@@ -2728,13 +2893,76 @@ def handle_review_commands():
 #  MAIN
 # ═══════════════════════════════════════════════════════════════════════════════
 
+def preview_scan(args, targets, scope, exclusions):
+    """Produce a local-only preview. DNS-dependent destinations stay unresolved."""
+    commands = []
+    if not targets:
+        raise ValueError("Target file contains no usable targets")
+    if not scope and scope is not None:
+        raise ValueError("Authorized scope is empty")
+    for target in targets:
+        if not ScopeGuard._valid_entry(target):
+            raise ValueError(f"Invalid target: {target}")
+        literal = _is_ip_literal(target) or "/" in target or parse_last_octet_range(target)
+        if literal:
+            ScopeGuard([target], scope, exclusions, resolver=lambda *a, **k: ([], "Requires DNS validation"))
+        if args.nxc:
+            command = ["nxc", args.nxc, target, *args.nmap_extra]
+            argv = redact_command(command)
+        else:
+            report = os.path.join(args.output, f"{sanitize_filename(target)}.txt")
+            argv = _build_nmap_command(target, report, args.nmap_extra)
+        commands.append({"target": target, "destinations": [target] if literal else [],
+                         "scope_decision": "Validated locally" if literal else "Requires DNS validation before execution",
+                         "argv": argv})
+    preview = {"tool": "NetExec" if args.nxc else "Nmap", "profile": args.profile or "custom",
+               "impact": "credentialed" if args.allow_intrusive else "potentially noisy",
+               "required_privileges": "Administrator/root for raw-packet and OS detection modes" if
+                   any(flag in args.nmap_extra for flag in ("-sS", "-sU", "-O")) else "Depends on scanner mode",
+               "side_effects": "Execution sends network probes and writes raw evidence and reports",
+               "output_directory": os.path.abspath(args.output), "scope": scope if scope is not None else targets,
+               "exclusions": exclusions, "commands": commands,
+               "dns": "Deferred until execution", "authorization": args.authorization_note or "Explicit target selection"}
+    print(json.dumps(preview, indent=2))
+
+
 def main():
-    global COLORS_ENABLED
+    global COLORS_ENABLED, ACTIVE_SCOPE
     _save_terminal()
     handle_topic_help()
     handle_review_commands()
     args = parse_args()
     COLORS_ENABLED = not args.no_color
+    ACTIVE_SCOPE = None
+    if args.split is None and args.split_size is None:
+        requested = [normalize_target(args.ip)] if args.ip else load_targets(args.file)
+        if args.nxc and args.nxc not in {"smb", "rdp", "ldap", "winrm", "ssh", "ftp", "mssql", "wmi", "vnc", "nfs"}:
+            raise ValueError("Unsupported NetExec protocol")
+        explicit_scope = load_scope(args.scope_file)
+        exclusions = list(args.exclude)
+        if args.exclude_file:
+            exclusions.extend(load_targets(args.exclude_file))
+        # Exclusions are enforced by ScopeGuard, including CIDR overlap. Remove
+        # duplicate scanner exclusion flags so mutable files cannot change scope.
+        if args.exclude or args.exclude_file:
+            extras = list(args.nmap_extra)
+            if args.exclude_file:
+                extras = extras[:-2]
+            if args.exclude:
+                extras = extras[:-2]
+            args.nmap_extra = extras
+        validate_scan_options(args.nmap_extra, bool(args.nxc), args.allow_intrusive)
+        if "null-auth" in args.nxc_queries or "all" in args.nxc_queries:
+            if not args.allow_intrusive:
+                raise ValueError("Anonymous authentication requires explicit authorization and --allow-intrusive")
+        if args.dry_run:
+            preview_scan(args, requested, explicit_scope, exclusions)
+            return
+        try:
+            ACTIVE_SCOPE = ScopeGuard(requested, explicit_scope, exclusions)
+        except ValueError as error:
+            print(f"scanrunner: Refusing targets outside --scope-file or invalid authorization: {error}", file=sys.stderr)
+            raise SystemExit(1)
     banner()
 
     if args.split is not None or args.split_size is not None:
@@ -3171,4 +3399,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except (ValueError, OSError) as error:
+        print(f"scanrunner: error: {error}", file=sys.stderr)
+        sys.exit(1)

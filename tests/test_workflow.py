@@ -186,8 +186,8 @@ class ScopeTests(unittest.TestCase):
     def fail_resolver(target, timeout=5):
         return target, "failed"
 
-    def test_empty_scope_allows_everything(self):
-        self.assertTrue(sr.target_in_scope("8.8.8.8", []))
+    def test_empty_scope_refuses_everything(self):
+        self.assertFalse(sr.target_in_scope("8.8.8.8", []))
 
     def test_ip_and_cidr_membership(self):
         self.assertTrue(self.check("10.0.0.7"))
@@ -208,7 +208,8 @@ class ScopeTests(unittest.TestCase):
         self.assertFalse(self.check("10.0.0.20-10"))   # reversed range is not valid
 
     def test_hostname_listed_by_name(self):
-        self.assertTrue(self.check("APP.corp.local"))
+        self.assertTrue(self.check("APP.corp.local", resolver=lambda *a, **k: (["10.0.0.42"], "resolved")))
+        self.assertFalse(self.check("APP.corp.local"))
 
     def test_hostname_resolving_into_scope(self):
         resolver = mock.Mock(return_value=("10.0.0.42", "resolved"))
@@ -717,7 +718,7 @@ def _mixed_scenarios():
     }
 
 
-MIXED_TARGETS = ("10.0.0.1", "10.0.0.2", "10.0.0.3", "ghost.invalid", "10.0.0.4", "10.9.0.0/30")
+MIXED_TARGETS = ("10.0.0.1", "10.0.0.2", "10.0.0.3", "10.0.0.4", "10.9.0.0/30")
 
 
 class SerialEndToEndTests(EndToEndBase):
@@ -728,15 +729,14 @@ class SerialEndToEndTests(EndToEndBase):
         self.assertEqual(result.returncode, 0, self.last_output)
         self.assertEqual(self.logged("completed.txt"), {"10.0.0.1", "10.9.0.0/30"})
         self.assertEqual(self.logged("not-pingip.txt"), {"10.0.0.2", "10.0.0.4"})
-        self.assertEqual(self.logged("failed.txt"), {"10.0.0.3", "ghost.invalid"})
+        self.assertEqual(self.logged("failed.txt"), {"10.0.0.3"})
         self.assertIn("Reconciliation OK", self.last_output)
         self.assertIn("host timeout", self.last_output)
-        self.assertIn("could not resolve", self.last_output)
         self.assertFalse((self.out / "unaccounted.txt").exists())
         # -n reached Nmap; nothing was scanned for the no-ping host
         calls = self.nmap_calls()
         self.assertTrue(all("-n" in call for call in calls))
-        self.assertEqual(len(calls), 5)
+        self.assertEqual(len(calls), 4)
         rows = {(r["target"], r["host"], r["port_service"]) for r in self.inventory()}
         self.assertEqual(rows, {("10.0.0.1", "10.0.0.1", "22/tcp/ssh"), ("10.0.0.1", "10.0.0.1", "80/tcp/http"),
                                 ("10.9.0.0/30", "10.9.0.1", "22/tcp/ssh"),
@@ -745,7 +745,7 @@ class SerialEndToEndTests(EndToEndBase):
     def test_fatal_error_stops_the_run_and_leaves_rest_unaccounted(self):
         self.scenarios(**{"10.0.0.1": {"kind": "badopt"}})
         result = self.run_scan("-f", self.targets("10.0.0.1", "10.0.0.2", "10.0.0.3"),
-                               "--yes", "--skip-ping", "--retries", "2", "--bogus")
+                               "--yes", "--skip-ping", "--retries", "2", "-sS")
         self.assertEqual(len(self.nmap_calls()), 1)           # no retries, no further hosts
         self.assertEqual(self.logged("failed.txt"), {"10.0.0.1"})
         self.assertIn("Stopping: Nmap refused to run", self.last_output)
@@ -792,7 +792,8 @@ class SerialEndToEndTests(EndToEndBase):
         result = self.run_scan("-f", self.targets("10.0.0.1", "outside.invalid"),
                                "--yes", "--skip-ping", "--scope-file", str(scope))
         self.assertEqual(result.returncode, 1)
-        self.assertIn("Refusing targets outside --scope-file: outside.invalid", self.last_output)
+        self.assertIn("Refusing targets outside --scope-file", self.last_output)
+        self.assertIn("outside.invalid", self.last_output)
         self.assertEqual(self.nmap_calls(), [])
 
 
@@ -807,7 +808,7 @@ class ParallelEndToEndTests(EndToEndBase):
         self.assertEqual(result.returncode, 0, self.last_output)
         self.assertEqual(self.logged("completed.txt"), {"10.0.0.1", "10.9.0.0/30"})
         self.assertEqual(self.logged("not-pingip.txt"), {"10.0.0.2", "10.0.0.4"})
-        self.assertEqual(self.logged("failed.txt"), {"10.0.0.3", "ghost.invalid"})
+        self.assertEqual(self.logged("failed.txt"), {"10.0.0.3"})
         self.assertEqual(self.logged("skipped.txt"), {"10.0.0.5"})
         self.assertIn("Reconciliation OK", self.last_output)
         self.assertNotIn("10.0.0.4", [call[-1] for call in self.nmap_calls()])
@@ -893,13 +894,16 @@ class NxcEndToEndTests(EndToEndBase):
     def test_nxc_table_and_module_options(self):
         nxc_log = self.root / "nxc-argv.jsonl"
         self.env.update(FAKE_NXC_ARGV_LOG=str(nxc_log), FAKE_NXC_OUTPUT=NXC_OUTPUT)
-        # Keep only the fake nxc on PATH so a real netexec install can't be picked up
+        # Scanner modules are rejected before launch until their target behavior is reviewed.
         result = self.run_scan("-f", self.targets("10.0.0.0/24"), "-nxc", "smb",
                                "--nxc-query", "smbv1,smb-signing", "-M", "spider_plus",
                                "-o", "DOWNLOAD_FLAG=False")
+        self.assertEqual(result.returncode, 1, self.last_output)
+        self.assertIn("Unreviewed scanner argument", self.last_output)
+        self.assertFalse(nxc_log.exists())
+        result = self.run_scan("-f", self.targets("10.0.0.0/24"), "-nxc", "smb",
+                               "--nxc-query", "smbv1,smb-signing")
         self.assertEqual(result.returncode, 0, self.last_output)
-        argv = json.loads(nxc_log.read_text().splitlines()[0])
-        self.assertEqual(argv[-2:], ["-o", "DOWNLOAD_FLAG=False"])
         csv_file = next(self.out.glob("nxc-smb-*.csv"))
         lines = csv_file.read_text().splitlines()
         self.assertEqual(lines[0], "target,smbv1,smb_signing")
