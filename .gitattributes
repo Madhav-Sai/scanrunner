@@ -1,1 +1,1 @@
-tests/fixtures/detection-benchmark/*.xml -text
+tests/fixtures/detection-benchmark/*.xml -text whitespace=cr-at-eol
