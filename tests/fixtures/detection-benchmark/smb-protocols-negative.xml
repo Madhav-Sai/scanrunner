@@ -1,0 +1,2 @@
+<?xml version='1.0' encoding='utf-8'?>
+<nmaprun scanner="nmap" version="7.95" start="1700000000" args="synthetic controlled fixture"><host><status state="up" /><address addr="192.0.2.10" addrtype="ipv4" /><ports><port protocol="tcp" portid="445"><state state="open" /><script id="smb-protocols" output="dialects: 3.1.1"><table key="dialects"><elem>3.1.1</elem></table></script></port></ports></host><runstats><finished exit="success" /><hosts up="1" down="0" total="1" /></runstats></nmaprun>

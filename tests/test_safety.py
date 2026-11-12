@@ -15,6 +15,17 @@ spec.loader.exec_module(sr)
 
 
 class ScopeSafetyTests(unittest.TestCase):
+    def test_preview_discloses_rate_scope_and_divides_the_supported_budget(self):
+        output = io.StringIO()
+        argv = ["scanrunner", "-i", "192.0.2.1", "--dry-run", "--json", "--scan-rate", "16", "--global-concurrency", "3"]
+        with mock.patch("sys.argv", argv), mock.patch("sys.stdout", output), mock.patch("sys.stderr", io.StringIO()):
+            sr.main()
+        preview = json.loads(output.getvalue())
+        self.assertEqual(preview["traffic_limits"]["global_workers"], 3)
+        self.assertIn("outside this ceiling", preview["traffic_limits"]["rate_scope"])
+        command = preview["commands"][0]["argv"]
+        self.assertEqual(command[command.index("--max-rate") + 1], "5")
+
     def test_netexec_version_exit_one_requires_a_version_line(self):
         result = subprocess.CompletedProcess([], 1, stdout=b"1.5.1 - Fixture - abc - 0\n", stderr=b"")
         with mock.patch.object(sr.subprocess, "run", return_value=result):

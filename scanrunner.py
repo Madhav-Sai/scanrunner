@@ -44,7 +44,7 @@ from datetime import datetime, timezone
 from urllib.parse import urlsplit
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 EVIDENCE_PARSER_VERSION = "2"
 
 # When an interactive run has at least this many pending targets, offer to
@@ -61,7 +61,7 @@ SCAN_PROFILES = {
     "ssl-ciphers": ["-sV", "--script", "ssl-enum-ciphers"],
     "web-enum": ["-sV", "-p", "80,443,8000,8080,8443"],
     "smb-audit": ["-sV", "--script",
-                  "smb-os-discovery,smb-protocols,smb-security-mode"],
+                  "smb-os-discovery,smb-protocols,smb-security-mode,smb2-security-mode"],
     "rdp-audit": ["-sV", "--script",
                   "rdp-enum-encryption,rdp-ntlm-info"],
 }
@@ -102,6 +102,10 @@ Start here:
 Review results (no scanning):
   scanrunner --status [DIR]                    Summarise an output folder
   scanrunner --diff OLD_DIR NEW_DIR            Compare open ports between two runs
+  scanrunner inventory --help                 Review normalized assets and services
+  scanrunner findings --help                  Create and review evidence-linked findings
+  scanrunner retest --help                    Compare control-specific evidence
+  scanrunner benchmark --help                 Score checks against supplied labels
 
 Focused help:
   scanrunner --nmap -h       Nmap workflow and options
@@ -1156,13 +1160,22 @@ def execute_nmap(target, report, options, use_pn=False, live=False):
         fatal = nmap_fatal_reason(captured.splitlines())
         if fatal:
             status, parsed, detail = "FATAL", False, fatal
+        if parsed:
+            import scanrunner_assessment as assessment
+            parsed = False
+            records = assessment.normalize_nmap(sys.modules[__name__], _xml_report_path(output), target,
+                                                {**job, "run_id": store.run_id}, status)
+            assessment.AssessmentRepository(store, sys.modules[__name__]).ingest(records)
+            with open(os.path.join(job["directory"], "inventory.json"), "x", encoding="utf-8") as file:
+                json.dump(records, file, indent=2)
+            parsed = True
         publish_report_cache(job, report)
         if status not in {"COMPLETE", "DOWN"}:
             error_path = os.path.splitext(report)[0] + ".error.log"
             with open(error_path, "w", encoding="utf-8") as file:
                 file.write(captured)
             detail = detail or f"{status}; raw evidence: {job['directory']}"
-    except (OSError, ValueError) as error:
+    except (OSError, ValueError, sqlite3.Error) as error:
         status, parsed, detail = "FAILED", False, str(error)
     finally:
         store.finish_job(job, status, code, parsed, command)
@@ -1184,7 +1197,7 @@ def validate_scan_options(options, nxc=False, allow_intrusive=False):
                  "--osscan-guess", "--disable-arp-ping", "--send-ip", "--send-eth", "--unprivileged",
                  "--privileged", "--defeat-rst-ratelimit", "--defeat-icmp-ratelimit"}
     approved_scripts = {"ssl-enum-ciphers", "smb-os-discovery",
-                        "smb-protocols", "smb-security-mode", "rdp-enum-encryption", "rdp-ntlm-info"}
+                        "smb-protocols", "smb-security-mode", "smb2-security-mode", "rdp-enum-encryption", "rdp-ntlm-info"}
     index = 0
     while index < len(options):
         token = options[index]
@@ -1425,7 +1438,7 @@ for _name, _description in {
     "process-timeout": "Bound each scanner process in seconds (default 600). Partial evidence is retained.",
     "global-concurrency": "Set the shared output-directory scanner concurrency ceiling (default 4).",
     "subnet-concurrency": "Set the scanner concurrency ceiling per IPv4 /24 or IPv6 /64 (default 2).",
-    "scan-rate": "Set the aggregate Nmap packet-rate ceiling divided across global workers (default 100 PPS).",
+    "scan-rate": "Set the Nmap discovery/port-scan PPS budget across workers (default 100). OS, version and NSE traffic is outside this limit.",
     "allow-intrusive": "Opt in to credential operations with --authorization-note.",
     "authorization-note": "Record the explicit authorization reference for credential operations.",
     "history": "Review durable run and job metadata with --history [DIR] [--json].",
@@ -1732,7 +1745,7 @@ def parse_args():
     workflow_group.add_argument("--subnet-concurrency", type=int, default=2, metavar="N",
                         help="Concurrent scans per IPv4 /24 or IPv6 /64 (default 2)")
     workflow_group.add_argument("--scan-rate", type=int, default=100, metavar="PPS",
-                        help="Aggregate Nmap packet-rate ceiling divided across global workers (default 100)")
+                        help="Nmap discovery/port-scan PPS budget across workers. OS/version/NSE traffic is outside this limit (default 100)")
     workflow_group.add_argument("--retries", type=int, default=0, metavar="N",
                         help="Retry failed scans up to N times")
     workflow_group.add_argument("--parallel", type=int, default=1, metavar="N",
@@ -2411,6 +2424,23 @@ def read_nmap_xml(xml_path):
     root = ET.fromstring(data)
     if root.tag != "nmaprun":
         raise ValueError("not an Nmap XML report")
+    if len(root.findall("runstats")) > 1 or any(len(stats.findall("finished")) > 1 or len(stats.findall("hosts")) > 1
+                                               for stats in root.findall("runstats")):
+        raise ValueError("Duplicate Nmap completion evidence")
+    for host in root.findall("host"):
+        if len(host.findall("status")) > 1:
+            raise ValueError("Duplicate Nmap host status evidence")
+        endpoints = [(port.get("protocol"), port.get("portid")) for port in host.findall("ports/port")]
+        if len(endpoints) != len(set(endpoints)) or any(len(port.findall("state")) > 1 for port in host.findall("ports/port")):
+            raise ValueError("Duplicate Nmap service-state evidence")
+    pending = [(root, 0)]
+    count = 0
+    while pending:
+        node, depth = pending.pop()
+        count += 1
+        if depth > 128 or count > 250000:
+            raise ValueError("Nmap XML exceeds parser structure limits")
+        pending.extend((child, depth + 1) for child in node)
     return root
 
 
@@ -3499,7 +3529,9 @@ def preview_scan(args, targets, scope, exclusions):
                "exclusions": exclusions, "commands": commands,
                "dns": "Deferred until execution", "authorization": args.authorization_note or "Explicit target selection"}
     preview["traffic_limits"] = {"aggregate_nmap_pps": args.scan_rate,
-                                 "global_workers": args.global_concurrency, "per_subnet_workers": args.subnet_concurrency}
+                                 "global_workers": args.global_concurrency, "per_subnet_workers": args.subnet_concurrency,
+                                 "rate_scope": "Nmap host discovery and port scans. OS, version and NSE traffic is outside this ceiling.",
+                                 "applicable": not bool(args.nxc)}
     print(json.dumps(preview, indent=2))
 
 
@@ -3522,6 +3554,9 @@ def bounded_futures(executor, function, targets, limit):
 def main():
     global COLORS_ENABLED, ACTIVE_SCOPE, ACTIVE_STORE, ACTIVE_CONFIG
     _save_terminal()
+    if len(sys.argv) > 1 and sys.argv[1] in {"engagement", "inventory", "asset", "import", "observations", "report", "findings", "retest", "benchmark"}:
+        import scanrunner_assessment as assessment
+        sys.exit(assessment.cli(sys.argv[1:], sys.modules[__name__]))
     handle_topic_help()
     handle_review_commands()
     args = parse_args()
@@ -3535,8 +3570,19 @@ def main():
             raise ValueError("Unsupported NetExec protocol")
         explicit_scope = load_scope(args.scope_file)
         exclusions = list(args.exclude)
+        import scanrunner_assessment as assessment
+        policy = assessment.engagement_policy(args.output, args.engagement)
+        if policy:
+            if policy.get("expires_at"):
+                expiry = assessment.parse_timestamp(policy["expires_at"])
+                if expiry.tzinfo is None or expiry <= datetime.now(timezone.utc):
+                    raise ValueError("Engagement authorization has expired or lacks a timezone")
+            if explicit_scope is None:
+                explicit_scope = policy["scope"]
+            exclusions.extend(policy.get("exclusions", []))
         if args.exclude_file:
             exclusions.extend(load_targets(args.exclude_file))
+        exclusions = list(dict.fromkeys(exclusions))
         args._scope_exclusions = exclusions
         # Exclusions are enforced by ScopeGuard, including CIDR overlap. Remove
         # duplicate scanner exclusion flags so mutable files cannot change scope.
@@ -3573,6 +3619,9 @@ def main():
             return
         try:
             ACTIVE_SCOPE = ScopeGuard(requested, explicit_scope, exclusions)
+            if policy and any(not target_in_scope(address, policy["scope"])
+                              for target in requested for address in ACTIVE_SCOPE.destinations(target)):
+                raise ValueError("Requested target exceeds the registered engagement scope")
             if args.scope_snapshot:
                 with open(args.scope_snapshot, encoding="utf-8") as file:
                     snapshot = json.load(file)

@@ -11,12 +11,24 @@ spec.loader.exec_module(installer)
 
 
 class InstallerCompatibilityTests(unittest.TestCase):
+    def test_missing_companions_fail_before_installation_changes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "scanrunner.py"
+            source.write_text("# synthetic incomplete payload\n")
+            with mock.patch.object(installer, "windows_scripts_dir") as destination, \
+                    mock.patch.object(installer, "add_windows_user_path") as update_path, \
+                    self.assertRaises(SystemExit):
+                installer.install_windows_launcher(source)
+            destination.assert_not_called()
+            update_path.assert_not_called()
     def test_windows_payload_copies_the_standalone_application(self):
         with tempfile.TemporaryDirectory() as tmp, \
                 mock.patch.object(installer, "windows_scripts_dir", return_value=Path(tmp)), \
                 mock.patch.object(installer, "add_windows_user_path") as update_path:
             launcher = installer.install_windows_launcher(ROOT / "scanrunner.py")
             self.assertEqual((Path(tmp) / "scanrunner.py").read_bytes(), (ROOT / "scanrunner.py").read_bytes())
+            for name in ("scanrunner_assessment.py", "scanrunner_findings.py", "scanrunner_benchmark.py"):
+                self.assertEqual((Path(tmp) / name).read_bytes(), (ROOT / name).read_bytes())
             self.assertIn("%*", launcher.read_text())
             update_path.assert_called_once_with(Path(tmp))
 

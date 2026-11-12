@@ -1,5 +1,7 @@
 # ScanRunner — Codex Master Development Plan and TODO
 
+> Version 1.4 local milestone: normalized evidence, analyst decisions, guarded final exports, comparable retests and the labeled-data benchmark are implemented. Local verification is 164 passes, one gated live-Nmap skip and 26/26 targeted guards passing. Cross-platform CI and external accuracy validation remain pending. See IMPROVEMENT_REPORT.md. Acceptance checkboxes await the corresponding full criteria.
+
 > Profile follow-up closes DA-10 with documented compatibility changes, authorization-aware profile probes, CLI coverage and completion consistency. Current results are 134 regression passes, one gated skip and 26/26 targeted guards passing. See IMPROVEMENT_REPORT.md. No additional roadmap acceptance checkbox is closed by this increment.
 
 > Evidence repair follow-up: see EVIDENCE_ACCURACY_FOLLOWUP.md. Nine previously failing guard checks now pass; 132 regression tests pass with one gated skip. DA-10 remains open; the reproduced DA-11 lock defect is repaired locally, pending cross-platform acceptance. No additional roadmap task is accepted as complete. Real-world accuracy still requires labeled lab evidence.

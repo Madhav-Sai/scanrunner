@@ -15,6 +15,7 @@ from pathlib import Path
 
 APP = "scanrunner"
 SCRIPT = "scanrunner.py"
+COMPANIONS = ("scanrunner_assessment.py", "scanrunner_findings.py", "scanrunner_benchmark.py")
 MARKER_START = "# >>> scanrunner completion >>>"
 MARKER_END = "# <<< scanrunner completion <<<"
 
@@ -61,7 +62,16 @@ def project_script() -> Path:
     path = Path(__file__).resolve().parent / SCRIPT
     if not path.is_file():
         fail(f"{SCRIPT} was not found beside install.py")
+    payload_sources(path)
     return path
+
+
+def payload_sources(source: Path) -> list[Path]:
+    companions = [source.parent / name for name in COMPANIONS]
+    missing = [path.name for path in companions if not path.is_file()]
+    if missing:
+        fail("Incomplete application payload. Missing: " + ", ".join(missing))
+    return companions
 
 
 def detect_os() -> str:
@@ -151,11 +161,14 @@ def add_windows_user_path(directory: Path) -> None:
 
 
 def install_windows_launcher(source: Path) -> Path:
+    companions = payload_sources(source)
     destination_dir = windows_scripts_dir()
     destination_dir.mkdir(parents=True, exist_ok=True)
     installed_script = destination_dir / SCRIPT
     launcher = destination_dir / "scanrunner.cmd"
     shutil.copy2(source, installed_script)
+    for companion in companions:
+        shutil.copy2(companion, destination_dir / companion.name)
     launcher.write_text(f'@echo off\r\n"{sys.executable}" "{installed_script}" %*\r\n', encoding="utf-8")
     add_windows_user_path(destination_dir)
     success(f"Installed launcher: {launcher}")

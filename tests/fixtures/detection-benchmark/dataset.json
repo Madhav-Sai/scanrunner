@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "dataset_kind": "synthetic",
+  "cases": [
+    {
+      "id": "smb2-security-mode-positive",
+      "artifact": "smb2-security-mode-positive.xml",
+      "sha256": "f9b16c1fbf6384774f04ee12d62e887672afba400c479a4577983368e0615fd2",
+      "address": "192.0.2.10",
+      "port": 445,
+      "transport": "tcp",
+      "check_id": "smb2-security-mode",
+      "expected": "positive",
+      "ground_truth": {
+        "reviewer": "Synthetic fixture author",
+        "method": "Invented offline fixture. No scanner or live target was used.",
+        "verified_at": "2026-11-12T00:00:00+00:00"
+      }
+    },
+    {
+      "id": "smb2-security-mode-negative",
+      "artifact": "smb2-security-mode-negative.xml",
+      "sha256": "d1ec8b79dab50908a3e9f7c8c502cee2293b3841608363a8a1efde371b0894a2",
+      "address": "192.0.2.10",
+      "port": 445,
+      "transport": "tcp",
+      "check_id": "smb2-security-mode",
+      "expected": "negative",
+      "ground_truth": {
+        "reviewer": "Synthetic fixture author",
+        "method": "Invented offline fixture. No scanner or live target was used.",
+        "verified_at": "2026-11-12T00:00:00+00:00"
+      }
+    },
+    {
+      "id": "smb2-security-mode-unassessable-positive",
+      "artifact": "smb2-security-mode-unassessable-positive.xml",
+      "sha256": "801c4349d7123f690f69274e4dcc80e5933044407b49e0f369c2df8965e43e1c",
+      "address": "192.0.2.10",
+      "port": 445,
+      "transport": "tcp",
+      "check_id": "smb2-security-mode",
+      "expected": "positive",
+      "ground_truth": {
+        "reviewer": "Synthetic fixture author",
+        "method": "Invented offline fixture. No scanner or live target was used.",
+        "verified_at": "2026-11-12T00:00:00+00:00"
+      }
+    },
+    {
+      "id": "smb-protocols-positive",
+      "artifact": "smb-protocols-positive.xml",
+      "sha256": "4fb65f11d36ffb90921932fcb829f7b4201d9b5502d51bb49de2eb7a45115a95",
+      "address": "192.0.2.10",
+      "port": 445,
+      "transport": "tcp",
+      "check_id": "smb-protocols",
+      "expected": "positive",
+      "ground_truth": {
+        "reviewer": "Synthetic fixture author",
+        "method": "Invented offline fixture. No scanner or live target was used.",
+        "verified_at": "2026-11-12T00:00:00+00:00"
+      }
+    },
+    {
+      "id": "smb-protocols-negative",
+      "artifact": "smb-protocols-negative.xml",
+      "sha256": "063cf4b90615db65e0d2a58d35796e6ea2e26c9e412efff0d5989afdd8157ec9",
+      "address": "192.0.2.10",
+      "port": 445,
+      "transport": "tcp",
+      "check_id": "smb-protocols",
+      "expected": "negative",
+      "ground_truth": {
+        "reviewer": "Synthetic fixture author",
+        "method": "Invented offline fixture. No scanner or live target was used.",
+        "verified_at": "2026-11-12T00:00:00+00:00"
+      }
+    },
+    {
+      "id": "smb-protocols-unassessable-positive",
+      "artifact": "smb-protocols-unassessable-positive.xml",
+      "sha256": "9e53e41f67d76af0dde9f4595fa1dd3159305e11ba942adf1b32d3793f3daec6",
+      "address": "192.0.2.10",
+      "port": 445,
+      "transport": "tcp",
+      "check_id": "smb-protocols",
+      "expected": "positive",
+      "ground_truth": {
+        "reviewer": "Synthetic fixture author",
+        "method": "Invented offline fixture. No scanner or live target was used.",
+        "verified_at": "2026-11-12T00:00:00+00:00"
+      }
+    }
+  ]
+}

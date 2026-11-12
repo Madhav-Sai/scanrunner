@@ -43,7 +43,7 @@ def metrics(repository, measure_coverage=False):
                 "expected_failures": len(result.expectedFailures), "elapsed_seconds": round(time.monotonic() - started, 3),
                 "failure_details": [{"test": test.id(), "traceback": detail} for test, detail in result.failures + result.errors]}
     measured["source_sha256"] = {name: hashlib.sha256((repository / name).read_bytes()).hexdigest()
-                                for name in ("scanrunner.py", "scanrunner_assessment.py", "install.py")
+                                for name in ("scanrunner.py", "scanrunner_assessment.py", "scanrunner_findings.py", "scanrunner_benchmark.py", "install.py")
                                 if (repository / name).is_file()}
     if tracer:
         coverage = {}

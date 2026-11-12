@@ -1,5 +1,7 @@
 # Synthetic regression evidence
 
+`detection-benchmark/dataset.json` binds six synthetic SMB cases to their SHA-256 hashes and explicit labels. Each supported check includes a positive, a negative and an unassessable positive. The manifest is usable with `scanrunner benchmark`. Its supplied labels describe invented fixtures. Real-world performance requires a separate, independently verified dataset.
+
 All data in this directory is invented for offline tests. Addresses use documentation ranges. No file represents an executed scan or a verified vulnerability. Script text is deliberately contradictory; it is evidence for future conservative rules, never analyst approval.
 
 `nmap-mixed.xml` covers multiple hosts, IPv4/IPv6, TCP/UDP, open/closed/filtered/open|filtered, host-down and script evidence. `nmap-partial.xml` and `nmap-broken.xml` exercise rejected XML. Empty output is created explicitly by the tests. `scenarios.json` supplies CIDR, DNS multi-answer, timeout and failed-process data without live resolution or processes. NetExec output includes positive, negative, ambiguous and contradictory textual observations; no confirmation semantics are implied.

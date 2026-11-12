@@ -1,0 +1,250 @@
+{
+  "schema_version": 1,
+  "dataset_kind": "synthetic",
+  "dataset_sha256": "738347b8a724a76938461216e8cd86f694d0f31b5a044909bb09d79a64de148e",
+  "parser_version": "1",
+  "cases": [
+    {
+      "id": "smb2-security-mode-positive",
+      "check_id": "smb2-security-mode",
+      "expected": "positive",
+      "actual": "Potential",
+      "category": "true_positive",
+      "reason": "Explicit supported negotiation output",
+      "artifact_sha256": "f9b16c1fbf6384774f04ee12d62e887672afba400c479a4577983368e0615fd2",
+      "scanner_versions_in_artifact": [
+        "7.95"
+      ]
+    },
+    {
+      "id": "smb2-security-mode-negative",
+      "check_id": "smb2-security-mode",
+      "expected": "negative",
+      "actual": "Not observed",
+      "category": "true_negative",
+      "reason": "Explicit supported negotiation output",
+      "artifact_sha256": "d1ec8b79dab50908a3e9f7c8c502cee2293b3841608363a8a1efde371b0894a2",
+      "scanner_versions_in_artifact": [
+        "7.95"
+      ]
+    },
+    {
+      "id": "smb2-security-mode-unassessable-positive",
+      "check_id": "smb2-security-mode",
+      "expected": "positive",
+      "actual": "Inconclusive",
+      "category": "abstained_positive",
+      "reason": "Missing validated check prerequisites",
+      "artifact_sha256": "801c4349d7123f690f69274e4dcc80e5933044407b49e0f369c2df8965e43e1c",
+      "scanner_versions_in_artifact": [
+        "7.95"
+      ]
+    },
+    {
+      "id": "smb-protocols-positive",
+      "check_id": "smb-protocols",
+      "expected": "positive",
+      "actual": "Potential",
+      "category": "true_positive",
+      "reason": "Explicit supported negotiation output",
+      "artifact_sha256": "4fb65f11d36ffb90921932fcb829f7b4201d9b5502d51bb49de2eb7a45115a95",
+      "scanner_versions_in_artifact": [
+        "7.95"
+      ]
+    },
+    {
+      "id": "smb-protocols-negative",
+      "check_id": "smb-protocols",
+      "expected": "negative",
+      "actual": "Not observed",
+      "category": "true_negative",
+      "reason": "Explicit supported negotiation output",
+      "artifact_sha256": "063cf4b90615db65e0d2a58d35796e6ea2e26c9e412efff0d5989afdd8157ec9",
+      "scanner_versions_in_artifact": [
+        "7.95"
+      ]
+    },
+    {
+      "id": "smb-protocols-unassessable-positive",
+      "check_id": "smb-protocols",
+      "expected": "positive",
+      "actual": "Inconclusive",
+      "category": "abstained_positive",
+      "reason": "Missing validated check prerequisites",
+      "artifact_sha256": "9e53e41f67d76af0dde9f4595fa1dd3159305e11ba942adf1b32d3793f3daec6",
+      "scanner_versions_in_artifact": [
+        "7.95"
+      ]
+    }
+  ],
+  "rule_version": "1",
+  "implementation_sha256": {
+    "scanrunner.py": "d877d527c8079ecba31df5fd48921ddafd46be96d1e06e8341d79a62549b2476",
+    "scanrunner_assessment.py": "d7c2c0a48be184615745723a93a15b479e6d218ecb9f2526c141576e516fb113",
+    "scanrunner_findings.py": "5b8d273694e7a62baade485881dd9313be6439857a42b37e55ee979fb86b4a15",
+    "scanrunner_benchmark.py": "911c264b124b2fe86cda858c2269fb7583d2f5c0be8eeb5311ef25e364937375"
+  },
+  "per_check": {
+    "smb2-security-mode": {
+      "true_positive": 1,
+      "false_positive": 0,
+      "true_negative": 1,
+      "false_negative": 0,
+      "abstained_positive": 1,
+      "abstained_negative": 0,
+      "precision": {
+        "value": 1.0,
+        "numerator": 1,
+        "denominator": 1,
+        "wilson_95": [
+          0.20654329147389294,
+          1
+        ]
+      },
+      "operational_recall": {
+        "value": 0.5,
+        "numerator": 1,
+        "denominator": 2,
+        "wilson_95": [
+          0.09452865480086614,
+          0.9054713451991339
+        ]
+      },
+      "false_positive_rate": {
+        "value": 0.0,
+        "numerator": 0,
+        "denominator": 1,
+        "wilson_95": [
+          0,
+          0.7934567085261071
+        ]
+      },
+      "operational_false_positive_rate": {
+        "value": 0.0,
+        "numerator": 0,
+        "denominator": 1,
+        "wilson_95": [
+          0,
+          0.7934567085261071
+        ]
+      },
+      "determinate_accuracy": {
+        "value": 1.0,
+        "numerator": 2,
+        "denominator": 2,
+        "wilson_95": [
+          0.34237195288961925,
+          1
+        ]
+      },
+      "correct_assessment_rate": {
+        "value": 0.6666666666666666,
+        "numerator": 2,
+        "denominator": 3,
+        "wilson_95": [
+          0.2076549551264879,
+          0.9385096847238394
+        ]
+      },
+      "negative_abstention_rate": {
+        "value": 0.0,
+        "numerator": 0,
+        "denominator": 1,
+        "wilson_95": [
+          0,
+          0.7934567085261071
+        ]
+      },
+      "coverage": {
+        "value": 0.6666666666666666,
+        "numerator": 2,
+        "denominator": 3,
+        "wilson_95": [
+          0.2076549551264879,
+          0.9385096847238394
+        ]
+      }
+    },
+    "smb-protocols": {
+      "true_positive": 1,
+      "false_positive": 0,
+      "true_negative": 1,
+      "false_negative": 0,
+      "abstained_positive": 1,
+      "abstained_negative": 0,
+      "precision": {
+        "value": 1.0,
+        "numerator": 1,
+        "denominator": 1,
+        "wilson_95": [
+          0.20654329147389294,
+          1
+        ]
+      },
+      "operational_recall": {
+        "value": 0.5,
+        "numerator": 1,
+        "denominator": 2,
+        "wilson_95": [
+          0.09452865480086614,
+          0.9054713451991339
+        ]
+      },
+      "false_positive_rate": {
+        "value": 0.0,
+        "numerator": 0,
+        "denominator": 1,
+        "wilson_95": [
+          0,
+          0.7934567085261071
+        ]
+      },
+      "operational_false_positive_rate": {
+        "value": 0.0,
+        "numerator": 0,
+        "denominator": 1,
+        "wilson_95": [
+          0,
+          0.7934567085261071
+        ]
+      },
+      "determinate_accuracy": {
+        "value": 1.0,
+        "numerator": 2,
+        "denominator": 2,
+        "wilson_95": [
+          0.34237195288961925,
+          1
+        ]
+      },
+      "correct_assessment_rate": {
+        "value": 0.6666666666666666,
+        "numerator": 2,
+        "denominator": 3,
+        "wilson_95": [
+          0.2076549551264879,
+          0.9385096847238394
+        ]
+      },
+      "negative_abstention_rate": {
+        "value": 0.0,
+        "numerator": 0,
+        "denominator": 1,
+        "wilson_95": [
+          0,
+          0.7934567085261071
+        ]
+      },
+      "coverage": {
+        "value": 0.6666666666666666,
+        "numerator": 2,
+        "denominator": 3,
+        "wilson_95": [
+          0.2076549551264879,
+          0.9385096847238394
+        ]
+      }
+    }
+  },
+  "limitations": "Metrics describe the supplied labeled dataset. Ground-truth provenance is supplied by its reviewer. Tool execution coverage and environment representativeness require independent review. Positive abstentions count against operational recall."
+}

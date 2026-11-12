@@ -1,5 +1,17 @@
 # ScanRunner improvement and integration report
 
+## Assessment workflow implemented in 1.4.0
+
+The normalized inventory, engagement scope records, safe import, analyst finding decisions, evidence-bound final exports, comparable retests and labeled-data benchmark are implemented. `audit-metrics-assessment.json` records 164 passing tests and one gated localhost-Nmap integration skip. `audit-safety-assessment.json` records all 26 targeted guards passing. Cross-platform acceptance is pending the new CI run.
+
+Finding confirmation requires a named reviewer, rationale, reviewed impact/remediation, positive supported evidence, timestamp/version provenance and explicit approval. Imported origin requires a separate trust attestation. Final exports reparse preserved evidence and verify the approved finding hash. Retest history retains the baseline and new proof. Missing, filtered, failed, stale and different-method evidence cannot produce verified remediation. These operations work through the CLI and preserve source artifacts.
+
+The two implemented rules cover structured SMB signing and SMBv1 negotiation evidence. Host-level results record any endpoint derivation explicitly and keep ambiguous associations inconclusive. The supplied six-case dataset is synthetic. Each check has one positive, one negative and one unassessable positive, producing 50% operational recall and 66.7% coverage on that deliberately limited dataset. Its precision denominator is one positive prediction per check. These sample counts provide insufficient field validation. `audit-benchmark-synthetic.json` preserves the exact source and dataset hashes, counts and intervals.
+
+Real-world accuracy remains blocked by the missing independently labeled lab or verified output dataset. The optional live integration also requires the pending portable-Nmap authorization. RDP, TLS, SSH, DNS recursion and anonymous-FTP finding rules require validated evidence contracts and fixtures before implementation can be accepted. Optional XLSX, tool adapters and later roadmap extensions remain pending. Reviewer identity is recorded as a local assessor attestation, with enterprise authentication and independent review controls left for future integration.
+
+Version 1.4 requires the four Python application modules together. The Windows installer validates the payload before modifying the installation. Existing raw evidence remains available, and application/parser revisions invalidate earlier completion fingerprints. The discovery/port-scan PPS budget is disclosed separately from OS, version and NSE traffic.
+
 ## Profile repair and remaining release criteria
 
 The 2026-11-12 profile follow-up closes DA-10. All nine supported profiles preview through the CLI, and shell completion matches the catalog. SMB requires an authorization opt-in and note. The audit's profile probe now verifies both acceptance with the declared authorization and refusal without it. This changes that probe's policy model explicitly. See `audit-safety-profiles.json` and `audit-metrics-profile-fixes.json` for the measured source and results.

@@ -589,7 +589,7 @@ python3 scanrunner.py --list-templates
 | `web` | `-sV -p 80,443,8000,8080,8443` | Web service/version inventory |
 | `web-enum` | `-sV -p 80,443,8000,8080,8443` | Compatibility alias for web service inventory |
 | `ssl-ciphers` | `-sV --script ssl-enum-ciphers` | TLS cipher observations |
-| `smb-audit` | `-sV --script smb-os-discovery,smb-protocols,smb-security-mode` | SMB observations requiring explicit anonymous-session authorization |
+| `smb-audit` | `-sV --script smb-os-discovery,smb-protocols,smb-security-mode,smb2-security-mode` | SMB observations requiring explicit anonymous-session authorization |
 | `rdp-audit` | `-sV --script rdp-enum-encryption,rdp-ntlm-info` | RDP observations |
 | `udp` | `-sU -sV --top-ports 100` | Common UDP services |
 
@@ -945,9 +945,92 @@ Legacy logs and manual acknowledgements alone cannot mark a new job complete.
 Processes default to a 600-second timeout and retries are bounded to five.
 `--global-concurrency` defaults to 4 and `--subnet-concurrency` to 2. These ceilings
 apply to workers sharing an output directory. `--scan-rate` defaults to 100 Nmap
-packets per second, divided across global slots. Raw rate overrides must fit that
-ceiling. Use `--dry-run` to review the effective arguments and impact.
+discovery/port-scan packets per second, divided across global slots. Raw rate
+overrides must fit that ceiling. OS, version and NSE traffic is outside this budget.
+Use `--dry-run` to review the effective arguments and impact.
 
 Run `python scripts/check_quality.py` for offline syntax, safety lint and installer
 archive checks. The GitHub Actions workflow runs those checks and the offline
 regression suite on Windows, Linux and macOS.
+
+## Offline assessment workflow in 1.4
+
+Install and retain `scanrunner.py`, `scanrunner_assessment.py`, `scanrunner_findings.py`
+and `scanrunner_benchmark.py` together. The installer copies these modules on Windows.
+Unix launchers continue to use the repository source directory. Existing raw scan
+artifacts and legacy CSV/JSON/HTML views remain available.
+
+```bash
+python3 scanrunner.py engagement create --name lab --scope-file scope.txt -o results
+python3 scanrunner.py import saved.xml --engagement lab --scope-file scope.txt --target 192.0.2.0/24 -o results
+python3 scanrunner.py inventory --engagement lab --port 445 --transport tcp -o results
+python3 scanrunner.py observations --engagement lab -o results
+python3 scanrunner.py findings create --engagement lab --observation OBSERVATION_ID -o results
+python3 scanrunner.py findings list --engagement lab -o results
+```
+
+Import stores a private evidence copy, SHA-256, parser identity and original scanner
+metadata. It performs no scanner execution or DNS lookup. A registered engagement's
+scope and exclusions also constrain imports and subsequent scans. Inventory retains
+exact TCP/UDP states, OS guesses and confidence, source hostnames and timestamps.
+Unknown endpoint associations remain explicit. `asset --metadata metadata.json`
+updates assessor-owned owner, site, environment, criticality, tags, notes, subnet or
+customer fields. `asset ASSET_ID --add-address ADDRESS` records an analyst-approved
+address alias while preserving asset identity.
+
+Supported configuration rules currently interpret structured `smb2-security-mode`
+and `smb-protocols` evidence on an associated open TCP endpoint. They produce
+candidate observations with explicit prerequisites and rule versions. Their output
+semantics follow the [SMB signing script documentation](https://nmap.org/nsedoc/scripts/smb2-security-mode.html)
+and [SMB dialect script documentation](https://nmap.org/nsedoc/scripts/smb-protocols.html).
+Host-script evidence can use a sole eligible SMB endpoint under the documented
+[Nmap SMB library selection](https://svn.nmap.org/nmap/nselib/smb.lua). The observation
+records this derivation and its source port field. Multiple eligible endpoints,
+custom script arguments, failed checks and conflicting results require further
+verification. Automated TLS, SSH, DNS recursion, anonymous
+FTP and RDP finding rules remain pending validated evidence contracts and fixtures.
+Existing scanner integrations continue to preserve their raw results.
+
+Use `findings review --help` for supported decisions. Confirmation requires the
+reviewer's identity and rationale, an explicit approval of prerequisites and impact,
+positive source evidence, a known scanner version and observation time, and reviewed
+description, impact, remediation and references. Imported origin needs an explicit
+trust decision. For example, `reviewed-details.json` can contain these fields with
+the assessor's actual conclusions. Missing fields remain `Not determined`.
+
+```bash
+python3 scanrunner.py findings review --engagement lab --finding FINDING_ID --status Confirmed --reviewer ANALYST --rationale REVIEW_REASON --details reviewed-details.json --approve-preconditions-and-impact --trust-import-origin -o results
+python3 scanrunner.py retest FINDING_ID --engagement lab --run NEW_RUN_ID -o results
+python3 scanrunner.py findings history --engagement lab --finding FINDING_ID -o results
+python3 scanrunner.py report --engagement lab --view executive -o results
+python3 scanrunner.py report --engagement lab --format html --destination technical.html -o results
+python3 scanrunner.py findings export --engagement lab --destination final.json -o results
+```
+
+Review and retest events preserve history. Comparable negative evidence yields
+`Potentially Remediated`. `retest --approve --reviewer ... --rationale ...` can record
+`Remediated (Verified)` after the checks pass. Imported retest origin also requires
+`--trust-import-origin`. Missing, older, filtered, failed or different-method evidence
+cannot establish verified remediation. Final finding exports include confirmed
+records by default and revalidate their raw evidence and approval hashes. Use
+`--include-candidates` explicitly for draft exports. Reports retain coverage limits
+and count candidate and confirmed statuses separately. JSON, CSV and HTML exports
+redact recognized secrets, escape content and neutralize spreadsheet formulas.
+
+## Measuring checks against labeled data
+
+```bash
+python3 scanrunner.py benchmark tests/fixtures/detection-benchmark/dataset.json --destination synthetic-score.json
+```
+
+That dataset contains six invented offline cases, including deliberately
+unassessable cases. Its metrics describe those fixtures. For a controlled-lab or
+verified-output dataset, supply independently verified positive/negative labels,
+reviewer, method, timestamp, proof artifact and SHA-256 for each case. Each case
+identifies an exact scanner artifact hash, IP, port, transport and check ID. The
+benchmark invokes the production normalization and rule evaluator without scanning.
+Duplicate cases are refused. Errors and abstentions remain in the counts, operational
+recall includes positive abstentions, and reports include per-check denominators,
+coverage and Wilson intervals. Field accuracy is pending a representative labeled
+dataset. End-to-end scanner performance additionally requires executing the pinned
+scanner against the authorized lab and independently checking its ground truth.

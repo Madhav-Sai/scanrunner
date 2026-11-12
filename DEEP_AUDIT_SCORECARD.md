@@ -1,5 +1,7 @@
 # ScanRunner deep audit scorecard
 
+> Version 1.4 assessment increment: 164 regression passes, one gated live-Nmap skip and 26/26 targeted guards passing locally. The new analyst/retest workflow and synthetic benchmark are documented in IMPROVEMENT_REPORT.md. Real-world accuracy requires the pending labeled dataset. Source hashes and individual results are in audit-metrics-assessment.json, audit-safety-assessment.json and audit-benchmark-synthetic.json.
+
 > Current profile follow-up: 26/26 guards pass, with 134 passing regressions and one gated skip. The profile probe now checks authorized profiles with explicit opt-in and also asserts their refusal without opt-in. Compatibility changes and field-measurement gaps are documented in IMPROVEMENT_REPORT.md. Historical measurements below retain their original denominators and source versions.
 
 > Follow-up fixes: [EVIDENCE_ACCURACY_FOLLOWUP.md](EVIDENCE_ACCURACY_FOLLOWUP.md) records 132 passing regressions, one gated skip and 25/26 independent guards passing after repairs. The measurements below remain the historical baseline. Real-world accuracy is still unmeasured; DA-10 remains open; the reproduced DA-11 lock defect is repaired locally, pending cross-platform validation.
