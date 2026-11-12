@@ -116,3 +116,9 @@ The standalone installer remains the deployment payload. Added installer-copy/co
 ## CI compatibility correction
 
 The first CI run passed all Python 3.12 jobs on Ubuntu, Windows and macOS. Python 3.10 exposed an existing argparse single-dash abbreviation difference where Nmap -n became -nxc despite allow_abbrev=False. preprocess_argv now removes -n before argparse and forwards it explicitly. The regression test asserts both wrapper-token isolation and scanner passthrough. Local verification-python-compat.log records 116 tests, 115 passed and the explicit localhost opt-in skip. Offline quality checks and git diff --check passed. The next CI run must pass before accepting P0-12.
+
+## NetExec and asynchronous fixture corrections
+
+Primary source review of https://github.com/Pennyw0rth/NetExec/blob/main/nxc/cli.py showed --version deliberately exits 1 and the default target thread pool is 256. Version detection now accepts exit 1 only with a valid observed version line and records that exit code. Scanner jobs constrain NetExec to one target thread, avoiding a hidden high-concurrency default. A negative version-output fixture rejects unrelated failures.
+
+The second CI run passed Ubuntu/macOS on Python 3.10 and 3.12 but exposed a Windows test race. Background tabs log valid per-target completion before their final inventory transaction and run end. The fixture now waits for all durable child runs to end before checking row counts and cleaning up its temporary database. This preserves asynchronous tab behavior and checks the actual export completion condition.

@@ -1097,7 +1097,7 @@ def execute_nmap(target, report, options, use_pn=False, live=False):
 def validate_scan_options(options, nxc=False, allow_intrusive=False):
     """Reject extra targets, unreviewed scripts, and scope-extending options."""
     if nxc:
-        value_options = {"-u", "--username", "-p", "--password", "-H", "--hash", "--port", "--timeout", "-t"}
+        value_options = {"-u", "--username", "-p", "--password", "-H", "--hash", "--port", "--timeout", "-t", "--threads"}
         flags = {"--local-auth", "--continue-on-success", "--no-progress"}
     else:
         value_options = {"-p", "--top-ports", "--host-timeout", "--max-retries", "--max-rate",
@@ -1133,6 +1133,18 @@ def validate_scan_options(options, nxc=False, allow_intrusive=False):
         else:
             raise ValueError(f"Unreviewed scanner argument or extra target: {token}")
         index += 1
+
+
+def scanner_version(binary, nxc=False):
+    result = subprocess.run([binary, "--version"], capture_output=True, timeout=10, check=False)
+    text = strip_ansi((result.stdout + result.stderr).decode("utf-8", errors="replace")).strip()
+    # NetExec's documented implementation deliberately exits 1 for --version.
+    version_lines = [line.strip() for line in text.splitlines() if re.match(r"^\d+\.\d+(?:\.\d+)?(?:\s|$)", line.strip())]
+    if nxc and result.returncode == 1 and version_lines:
+        return version_lines[-1], result.returncode
+    if result.returncode != 0 or not text:
+        raise ValueError("Cannot determine scanner version for a reproducible run")
+    return text, result.returncode
 
 
 HELP_TOPICS = {
@@ -3385,6 +3397,14 @@ def main():
                 extras = extras[:-2]
             args.nmap_extra = extras
         validate_scan_options(args.nmap_extra, bool(args.nxc), args.allow_intrusive)
+        if args.nxc:
+            for index, option in enumerate(args.nmap_extra):
+                if option.split("=", 1)[0] in {"-t", "--threads"}:
+                    value = option.split("=", 1)[1] if "=" in option else args.nmap_extra[index + 1]
+                    if value != "1":
+                        raise ValueError("NetExec is limited to one target thread per claimed job")
+            if not any(option.split("=", 1)[0] in {"-t", "--threads"} for option in args.nmap_extra):
+                args.nmap_extra.extend(["-t", "1"])
         if not args.nxc:
             ceiling = max(1, args.scan_rate // args.global_concurrency)
             for index, option in enumerate(args.nmap_extra):
@@ -3408,11 +3428,9 @@ def main():
         binary = check_nxc_installed() if args.nxc else shutil.which("nmap")
         if binary is None:
             check_nmap_installed()
-        version_result = subprocess.run([binary, "--version"], capture_output=True, timeout=10, check=False)
-        version_text = (version_result.stdout + version_result.stderr).decode("utf-8", errors="replace").strip()
-        if version_result.returncode != 0 or not version_text:
-            raise ValueError("Cannot determine scanner version for a reproducible run")
+        version_text, version_exit = scanner_version(binary, bool(args.nxc))
         ACTIVE_CONFIG = {"tool": "nxc" if args.nxc else "nmap", "tool_version": version_text,
+                         "version_query_exit_code": version_exit,
                          "binary": os.path.abspath(binary), "binary_sha256": file_sha256(binary),
                          "scope": ACTIVE_SCOPE.scope, "dns_answers": ACTIVE_SCOPE.answers,
                          "exclusions": exclusions, "profile": args.profile or "custom", "profile_version": 1,

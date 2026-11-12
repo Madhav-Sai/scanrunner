@@ -860,6 +860,15 @@ class TabEndToEndTests(EndToEndBase):
         while datetime.now() < deadline and len(self.logged("completed.txt")) < len(targets):
             time.sleep(0.2)
         self.assertEqual(self.logged("completed.txt"), set(targets))
+        # Per-target completion precedes each tab's final inventory transaction.
+        # Wait for durable run completion before asserting exports or deleting its DB.
+        while datetime.now() < deadline:
+            history = sr.review_run_history(str(self.out))
+            if len(history["runs"]) >= 4 and all(run["ended"] for run in history["runs"]):
+                break
+            time.sleep(0.1)
+        else:
+            self.fail("Tab processes did not finish their export transactions")
         for index in (1, 2, 3):
             self.assertTrue((self.out / "tabs" / f"tab_{index}_console.log").exists())
         status = run_cli("--status", str(self.out), "--no-color", env=self.env)

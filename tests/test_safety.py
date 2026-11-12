@@ -3,6 +3,7 @@ import io
 import json
 from pathlib import Path
 import socket
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
@@ -14,6 +15,14 @@ spec.loader.exec_module(sr)
 
 
 class ScopeSafetyTests(unittest.TestCase):
+    def test_netexec_version_exit_one_requires_a_version_line(self):
+        result = subprocess.CompletedProcess([], 1, stdout=b"1.5.1 - Fixture - abc - 0\n", stderr=b"")
+        with mock.patch.object(sr.subprocess, "run", return_value=result):
+            self.assertEqual(sr.scanner_version("nxc", True), ("1.5.1 - Fixture - abc - 0", 1))
+        result.stdout = b"an unrelated failure"
+        with mock.patch.object(sr.subprocess, "run", return_value=result), self.assertRaises(ValueError):
+            sr.scanner_version("nxc", True)
+
     def test_mixed_dns_denied_and_all_inside_answers_pinned(self):
         resolver = mock.Mock(return_value=(["192.0.2.1", "198.51.100.1"], "fixture"))
         with self.assertRaises(ValueError):
