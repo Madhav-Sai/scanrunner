@@ -662,7 +662,7 @@ class EndToEndBase(unittest.TestCase):
         self.bin = self.root / "bin"
         self.bin.mkdir()
         for name, source in (("nmap", FAKE_NMAP), ("ping", FAKE_PING), ("nxc", FAKE_NXC)):
-            path = self.bin / name
+            path = self.bin / (name + ".py")
             path.write_text(source.format(python=sys.executable))
             path.chmod(0o755)
         self.state = self.root / "state"
@@ -670,6 +670,9 @@ class EndToEndBase(unittest.TestCase):
         self.argv_log = self.root / "nmap-argv.jsonl"
         self.out = self.root / "out"
         self.env = dict(os.environ, PATH=f"{self.bin}{os.pathsep}{os.environ['PATH']}",
+                        PYTHONPATH=str(SCRIPT.parent / "tests" / "offline_runtime"),
+                        PYTHONUTF8="1", FAKE_TOOL_DIR=str(self.bin),
+                        PYTHONDONTWRITEBYTECODE="1",
                         FAKE_NMAP_STATE=str(self.state), FAKE_NMAP_ARGV_LOG=str(self.argv_log),
                         FAKE_PING_UP="", FAKE_NMAP_SCENARIOS="{}")
 
@@ -868,12 +871,14 @@ class ReviewCommandTests(EndToEndBase):
         diff = run_cli("--diff", str(old_dir), str(new_dir), "--no-color", env=self.env)
         self.assertEqual(diff.returncode, 0, diff.stderr)
         self.assertIn("newly open: 443/tcp/https", diff.stdout)
-        self.assertIn("now closed: 80/tcp/http", diff.stdout)
+        self.assertIn("no longer observed open: 80/tcp/http", diff.stdout)
+        self.assertNotIn("now closed:", diff.stdout)
         self.assertIn("new host: 3389/tcp/ms-wbt-server", diff.stdout)
         self.assertIn("10.0.0.2", diff.stdout)
         with open(new_dir / "scan-diff.json", encoding="utf-8") as f:
             saved = json.load(f)
         self.assertEqual(saved["missing_hosts"], ["10.0.0.2"])
+        self.assertEqual(saved["coverage_comparability"], "Not verified")
 
     def test_review_command_errors(self):
         self.assertEqual(run_cli("--status", str(self.root / "missing")).returncode, 1)
@@ -906,7 +911,8 @@ class NxcEndToEndTests(EndToEndBase):
 #  Real Nmap against a local listener (skipped when Nmap isn't installed)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-@unittest.skipUnless(shutil.which("nmap"), "nmap is not installed")
+@unittest.skipUnless(os.environ.get("SCANRUNNER_TEST_REAL_NMAP") == "1" and shutil.which("nmap"),
+                     "controlled localhost scan requires SCANRUNNER_TEST_REAL_NMAP=1 and Nmap")
 class RealNmapTests(unittest.TestCase):
     def test_scan_localhost_listener(self):
         with socket.socket() as server, tempfile.TemporaryDirectory() as tmp:

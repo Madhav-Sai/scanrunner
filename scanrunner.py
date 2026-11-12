@@ -2649,6 +2649,8 @@ def diff_open_ports(old_hosts, new_hosts):
     Returns {"opened": {host: [port/service]}, "closed": {...},
     "new_hosts": [...], "missing_hosts": [...]}. Hosts are only compared when
     both runs saw them up; otherwise they are listed as new or missing.
+    The legacy `closed` key means no longer observed open, not tested closed.
+    These maps do not establish comparable scan coverage or remediation.
     """
     opened, closed = {}, {}
     for host in sorted(set(old_hosts) & set(new_hosts)):
@@ -2678,13 +2680,14 @@ def print_diff(old_dir, new_dir):
 
     print(c(C.CYAN + C.BOLD, f"  DIFF — {old_dir}  →  {new_dir}"))
     print(c(C.DIM, f"  {len(old_hosts)} host(s) up before, {len(new_hosts)} host(s) up now"))
+    print(c(C.YELLOW, "  Coverage equivalence not verified. Missing observations do not prove closure or remediation."))
     sep()
     if not any(diff.values()):
         print(c(C.GREEN, "  [+] No differences in open ports."))
     for host, ports in diff["opened"].items():
         print(c(C.RED + C.BOLD, f"  + {host:<18}") + c(C.RED, "  newly open: " + "  ".join(ports)))
     for host, ports in diff["closed"].items():
-        print(c(C.GREEN + C.BOLD, f"  - {host:<18}") + c(C.GREEN, "  now closed: " + "  ".join(ports)))
+        print(c(C.YELLOW + C.BOLD, f"  ? {host:<18}") + c(C.YELLOW, "  no longer observed open: " + "  ".join(ports)))
     for host in diff["new_hosts"]:
         ports = "  ".join(f"{p}/{s}" for p, s in sorted(new_hosts[host].items())) or "no open ports"
         print(c(C.YELLOW + C.BOLD, f"  * {host:<18}") + c(C.YELLOW, f"  new host: {ports}"))
@@ -2694,6 +2697,8 @@ def print_diff(old_dir, new_dir):
     diff_path = os.path.join(new_dir, "scan-diff.json")
     with open(diff_path, "w", encoding="utf-8") as f:
         json.dump({"old": os.path.abspath(old_dir), "new": os.path.abspath(new_dir),
+                   "coverage_comparability": "Not verified",
+                   "closed_interpretation": "No longer observed open; closure and remediation not established",
                    "generated": datetime.now().strftime(LOG_TIME_FORMAT), **diff}, f, indent=2)
     print()
     print(c(C.CYAN, f"  [i] Saved: {diff_path}\n"))

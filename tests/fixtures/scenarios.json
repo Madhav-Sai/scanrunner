@@ -1,0 +1,13 @@
+{
+  "cidr": "192.0.2.0/30",
+  "dns": {
+    "inside.invalid": ["192.0.2.10", "2001:db8::10"],
+    "mixed.invalid": ["192.0.2.10", "198.51.100.10"],
+    "empty.invalid": []
+  },
+  "processes": [
+    {"returncode": 1, "stdout": "synthetic process failure"},
+    {"returncode": 0, "stdout": ""},
+    {"returncode": 0, "stdout": "Skipping host 192.0.2.10 due to host timeout"}
+  ]
+}

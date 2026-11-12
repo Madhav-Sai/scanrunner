@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+/baseline-tests.log
+/offline-tests.log
+/fixture-tests.log
+/regression-tests.log
+/verification-*.log

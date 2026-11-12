@@ -1,0 +1,6 @@
+SMB 192.0.2.10 445 FIXTURE [*] Synthetic OS (name:FIXTURE) (signing:True) (SMBv1:False)
+SMB 192.0.2.11 445 OTHER [*] Synthetic OS (signing:False) (SMBv1:True)
+SMB 192.0.2.12 445 UNKNOWN [*] (signing:None) (SMBv1:None)
+SMB 192.0.2.10 445 FIXTURE [*] (signing:False)
+RDP 192.0.2.10 3389 FIXTURE [*] (NLA:None)
+truncated invalid line

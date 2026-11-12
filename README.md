@@ -891,3 +891,14 @@ conflicts, scope checks, target normalization, report classification (complete,
 down, timeout, unresolved, interrupted), per-host XML parsing, inventory
 merging, outcome reconciliation, resume rules, NXC table parsing, and end-to-end
 serial, parallel, tab, fatal-error, retry, `--status` and `--diff` runs.
+
+Offline workflow tests run synthetic scanners through Python on Windows and POSIX;
+they block child DNS, shell launches and real scanner executables. A controlled
+localhost Nmap integration is separate and requires both Nmap and the explicit
+`SCANRUNNER_TEST_REAL_NMAP=1` environment variable. Leave it unset for offline tests.
+See `tests/fixtures/README.md` for fixture provenance and `AUDIT.md` for known gaps.
+
+Port diffs report removed entries as **no longer observed open**. Scan coverage
+has not been proved equivalent, so this is not proof of closure or remediation.
+For JSON compatibility, the `closed` key remains; `closed_interpretation` and
+`coverage_comparability` explain its limits.
