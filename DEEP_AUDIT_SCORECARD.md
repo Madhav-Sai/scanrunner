@@ -1,6 +1,6 @@
 # ScanRunner deep audit scorecard
 
-The pushed implementation at `ffef34b57e4e1dd552ed2401006f359bad1058e9` passes its regression suite, but independent adversarial checks reproduce important evidence and interpretation gaps. Its real-world vulnerability detection accuracy remains unmeasured. The earlier assessment that all P0 acceptance criteria were complete was premature. SR-P0-04, SR-P0-06 and SR-P0-08 are reopened.
+The implementation audited at `ffef34b57e4e1dd552ed2401006f359bad1058e9` passes its local regression suite, but independent adversarial checks reproduce important evidence and interpretation gaps. A later CI run on the same application/test source also reproduced an intermittent Windows inventory-export failure. Its real-world vulnerability detection accuracy remains unmeasured. The earlier assessment that all P0 acceptance criteria were complete was premature. SR-P0-04, SR-P0-06, SR-P0-08, SR-P0-11 and SR-P0-12 are reopened.
 
 Audit date is 2026-11-12. The pushed implementation was examined in an isolated worktree. Uncommitted P1 inventory changes were measured separately. Scanner processes and DNS were mocked, and process-lifecycle tests used controlled local Python programs. The live localhost Nmap integration remains explicitly gated.
 
@@ -16,9 +16,11 @@ Audit date is 2026-11-12. The pushed implementation was examined in an isolated 
 | Advertised profiles accepted by the execution policy | 6 / 10 | 6 / 10 |
 | Real-world vulnerability precision / recall | Unmeasured | Unmeasured |
 
+The latest completed CI run observed during this audit passed **five of six jobs**. Windows/Python 3.10 recorded 120 passes, one failure and one gated test, while the other five jobs passed. The failure is DA-11 below. It occurs on the same application and regression-test source as the earlier green run. The application/test diff between `ffef34b` and report commit `c93f8f9` is empty. [Latest observed CI run](https://github.com/Madhav-Sai/scanrunner/actions/runs/43225397121)
+
 The 61.5 score is the unweighted pass fraction of the 26 named checks in `scripts/audit_safety.py`. The checks were selected during source review to examine authorization, output validation, interpretation, artifact requirements and profile compatibility. They form a targeted audit set. They do not represent the prevalence of conditions in customer networks, an external benchmark, or a statistical estimate of vulnerability detection accuracy.
 
-All six CI combinations passed for the pushed implementation, covering Ubuntu, Windows and macOS with Python 3.10 and 3.12. Each combination ran 122 scheduled tests, with 121 passes and the gated localhost integration. That totals 726 successful test invocations and six gated invocations across the matrix. [CI evidence](https://github.com/Madhav-Sai/scanrunner/actions/runs/43218961543)
+The earlier baseline CI run passed all six combinations, covering Ubuntu, Windows and macOS with Python 3.10 and 3.12. Each combination ran 122 scheduled tests, with 121 passes and the gated localhost integration. That historical run totals 726 successful test invocations and six gated invocations across the matrix. The subsequent failure establishes a remaining stability gap. [Earlier CI evidence](https://github.com/Madhav-Sai/scanrunner/actions/runs/43218961543)
 
 The gated test is `test_workflow.RealNmapTests.test_scan_localhost_listener`. It requires Nmap and `SCANRUNNER_TEST_REAL_NMAP=1`. Actual Nmap/NetExec execution, native terminal interaction, real Kali deployments and operational scan throughput were not exercised in this audit. Scanner compatibility results currently come from synthetic fixtures.
 
@@ -40,6 +42,7 @@ Priorities below concern assessment reliability and authorization policy. They a
 | DA-08 | Medium | Normal output says zero hosts up, while XML contains an up host and declares `up="0"`. Validation returns `('DOWN', True)`. Probe `contradictory_down_xml_cannot_validate` fails. | Conflicting host evidence can pass validation. Reconcile host counters and individual records for both complete and down outcomes. |
 | DA-09 | Medium, defense in depth | Direct calls to `RunStore.finish_job(..., "COMPLETE", 0, True, ...)` with no scan artifacts can make `completed()` return true. Probe `completion_api_requires_scan_artifacts` fails. | A future caller can bypass evidence requirements through the storage API. Enforce tool-specific required artifacts and validation provenance centrally. This reproduction uses the internal API. Normal Nmap execution has an additional validation path. |
 | DA-10 | Compatibility limitation | `web`, `vuln`, `full-fast` and `web-enum` are advertised but their configured arguments are rejected by the execution policy. Probe `advertised_profiles_match_execution_policy` fails. | Four profile choices cannot execute. Replace them with reviewed, bounded profiles or explicitly remove/deprecate the choices. Retain the safety restrictions during that repair. |
+| DA-11 | High, intermittent CI reproduction | The Windows/Python 3.10 background-tab test completes its target/run waits, then finds four inventory rows where six are expected. This occurs in CI run 43225397121 after an earlier all-green matrix. | Concurrent export reliability remains unresolved. Preserve failed fixture artifacts, reproduce writer interleavings and repair the export transaction. The prior unbuffered-file correction did not eliminate the failure. Root cause remains under investigation. |
 
 DA-01 is in `_run_nxc_command`, where process exit determines parser success before results are parsed. [Source](https://github.com/Madhav-Sai/scanrunner/blob/ffef34b57e4e1dd552ed2401006f359bad1058e9/scanrunner.py#L2132)
 
@@ -50,6 +53,8 @@ DA-04 uses a real documented script behavior with a mocked policy check. The scr
 DA-07 and DA-08 occur in `validate_nmap_evidence`. DA-09 concerns the contract between `finish_job` and `completed`. DA-10 concerns the profile catalog's compatibility with the allowlist. [Nmap validation](https://github.com/Madhav-Sai/scanrunner/blob/ffef34b57e4e1dd552ed2401006f359bad1058e9/scanrunner.py#L1039), [job completion](https://github.com/Madhav-Sai/scanrunner/blob/ffef34b57e4e1dd552ed2401006f359bad1058e9/scanrunner.py#L799), [resume](https://github.com/Madhav-Sai/scanrunner/blob/ffef34b57e4e1dd552ed2401006f359bad1058e9/scanrunner.py#L841), [profiles](https://github.com/Madhav-Sai/scanrunner/blob/ffef34b57e4e1dd552ed2401006f359bad1058e9/scanrunner.py#L54)
 
 Two additional design limitations sit outside the frozen 26-check score. Nmap documents that its min/max packet-rate options affect port scanning and host discovery, with other features using their own timing. ScanRunner's broad aggregate-rate wording therefore needs correction and separate validation for other probe types. Application/parser version provenance also needs an explicit resume/reinterpretation policy. SR-P0-08 is reopened for the traffic-control claim. [Nmap timing documentation](https://nmap.org/book/man-performance.html)
+
+DA-11 also sits outside the frozen 26-check score. The score remains 16/26 to preserve the audit set and its meaning. The separate regression/CI failure must also be resolved before accepting release readiness. [Failing CI job evidence](https://github.com/Madhav-Sai/scanrunner/actions/runs/43225397121)
 
 ## Accuracy and release assessment
 
@@ -74,6 +79,6 @@ Run against the working tree with `--repo` omitted. Set `PYTHONUTF8=1` and `PYTH
 
 `audit_safety.py` exits 1 when any expected guard fails. Its 26 checks are separate from the historical regression suite and are currently a manually invoked audit gate. They are not included in the existing CI test count. An initial working-tree probe run had an import-path error in the audit harness. The harness was corrected and the result was rerun before recording the final score.
 
-Machine-readable evidence is retained in `audit-metrics-pushed.json`, `audit-metrics-working.json`, `audit-safety-pushed.json` and `audit-safety-working.json`. Source SHA-256 values bind the recorded results to the tested code. Stdlib syntax/safety checks and installer archive checks were also run. No production/client scan evidence was modified during the audit.
+Machine-readable evidence is retained in `audit-metrics-pushed.json`, `audit-metrics-working.json`, `audit-safety-pushed.json`, `audit-safety-working.json` and `audit-ci-latest.json`. Source SHA-256 values bind the recorded results to the tested code. Stdlib syntax/safety checks and installer archive checks were also run. No production/client scan evidence was modified during the audit.
 
 The local master plan was restored from the original UTF-8 document to repair encoding damage introduced while updating checkboxes. The original Downloads document remains intact. Historical progress entries remain in the repository copy, with a new top-level notice explaining the reopened acceptance criteria.

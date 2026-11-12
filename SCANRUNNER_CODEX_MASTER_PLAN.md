@@ -1,6 +1,6 @@
 # ScanRunner — Codex Master Development Plan and TODO
 
-> Deep audit update, 2026-11-12. SR-P0-04, SR-P0-06 and SR-P0-08 are reopened. Earlier completion notes are superseded by DEEP_AUDIT_SCORECARD.md and the independent probe results.
+> Deep audit update, 2026-11-12. SR-P0-04, SR-P0-06, SR-P0-08, SR-P0-11 and SR-P0-12 are reopened. Earlier completion notes are superseded by DEEP_AUDIT_SCORECARD.md and the independent probe results.
 
 > **Repository:** `https://github.com/Madhav-Sai/scanrunner`
 > **Primary platform:** Kali Linux
@@ -84,8 +84,8 @@ Checkboxes are intentionally unchecked. Assign actual issue links, commit hashes
 - [ ] **SR-P0-08 — Concurrency safeguards.** Add optional global/per-subnet concurrency and scan-rate ceilings, atomic updates, unique job ownership, and controlled backpressure. **Accept:** deterministic tests cover concurrent workers, crashes, duplicate claims, and retries.
 - [x] **SR-P0-09 — Raw evidence preservation.** Save exact stdout/stderr, original XML, exit status, command argv with secrets redacted, scanner version, UTC timestamps, and relevant config in immutable run-specific paths. Hash raw evidence (SHA-256). **Accept:** generation/retest cannot change earlier run artifacts; missing/corrupt artifacts are flagged.
 - [x] **SR-P0-10 — Secure local data handling.** Prevent path traversal, unsafe XML entity expansion, command injection, log credential leaks, excessive filesystem permissions, and accidental exports of secrets or personal data. **Accept:** negative security tests and basic dependency checks pass.
-- [x] **SR-P0-11 — Backwards compatibility.** Document current CLI syntax and defaults before refactoring; provide migration/back-compat behavior for output paths and metadata. **Accept:** existing CLI regression suite and packaging tests pass.
-- [x] **SR-P0-12 — CI quality gate.** Add lint/static analysis, automated tests, fixture-based integration tests, and packaging checks. **Accept:** CI is reproducible without external scan targets or mandatory optional tools.
+- [ ] **SR-P0-11 — Backwards compatibility.** Document current CLI syntax and defaults before refactoring; provide migration/back-compat behavior for output paths and metadata. **Accept:** existing CLI regression suite and packaging tests pass.
+- [ ] **SR-P0-12 — CI quality gate.** Add lint/static analysis, automated tests, fixture-based integration tests, and packaging checks. **Accept:** CI is reproducible without external scan targets or mandatory optional tools.
 
 ### P1 — Accurate inventory and everyday VAPT productivity
 
@@ -381,3 +381,6 @@ SQLite run/job/target state, transactional claims, bounded capture and retries, 
 ## Deep audit and improvement report, 2026-11-12
 
 DEEP_AUDIT_SCORECARD.md records the independent assessment. The pushed baseline has 121 passing regression tests and one gated integration test, while 16 of 26 targeted audit checks pass. Ten failing checks remain open. These measurements do not establish real-world vulnerability accuracy. SR-P0-04, SR-P0-06 and SR-P0-08 are reopened for authorization/impact, completion semantics and traffic-control limitations. IMPROVEMENT_REPORT.md describes corrections, future upgrades, optional integrations, drawbacks, acceptance criteria and accuracy benchmarking. No P1/P2/P3 task is accepted as complete by these reports.
+
+### Subsequent CI evidence
+CI run 43225397121 passed five of six jobs on unchanged application/test source. Windows/Python 3.10 reproduced an intermittent tab-export failure with four inventory rows instead of six. DA-11 is documented in the scorecard and improvement report. SR-P0-11 and SR-P0-12 are reopened alongside the existing scope/impact, completion and concurrency work. The 26-check audit score remains fixed at 16/26.

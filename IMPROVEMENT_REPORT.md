@@ -2,12 +2,13 @@
 
 This report recommends the next upgrades based on the 2026-11-12 deep audit of pushed implementation `ffef34b`. The evidence, ten reproduced findings and score methodology are recorded in `DEEP_AUDIT_SCORECARD.md`. Recommendations below are proposed work and require their own implementation and acceptance evidence.
 
-The measured baseline is 121 passing regression tests, one gated integration test, six successful CI jobs and 16 passing independent audit checks out of 26. Real-world vulnerability precision and recall remain unmeasured. The immediate priority is reliable interpretation of evidence and authorization, followed by the analyst workflow and individually reviewed optional adapters.
+The measured local baseline is 121 passing regression tests, one gated integration test and 16 passing independent audit checks out of 26. An earlier CI matrix passed all six jobs, while the latest observed run passed five of six and exposed an intermittent Windows export failure. Real-world vulnerability precision and recall remain unmeasured. The immediate priority is reliable interpretation of evidence and authorization, followed by the analyst workflow and individually reviewed optional adapters.
 
 ## Current drawbacks and required improvements
 
 | Drawback | Effect on an assessor | Recommended improvement | Priority / backlog |
 | --- | --- | --- | --- |
+| Background-tab export can finish with four rows instead of six in Windows CI | Valid scanned observations can disappear from the derived inventory | Retain failing fixture artifacts, reproduce concurrent interleavings and repair the export transaction with repeated cross-platform validation | Immediate, DA-11 and SR-P0-08/11/12 |
 | Empty NetExec output can be marked complete | Failed coverage can look successfully tested | Require associated, parseable evidence before completion and classify empty, timeout, partial and inconclusive outcomes | Immediate, DA-01 and SR-P0-06 |
 | Contradictory or generic NetExec messages become definite values | False-positive candidate observations and avoidable analyst work | Preserve source lines, recognize version-specific result semantics and retain contradictory facts for review | Immediate, DA-02/03 and SR-P2-02 |
 | Result rows can admit unsolicited hosts or mix SMB/RDP facts | Wrong affected assets, ports and remediation instructions | Associate every observation with engagement, requested target, actual IP, protocol, port, run and check | Immediate, DA-05/06 and SR-P1-01/04 |
@@ -29,7 +30,7 @@ Record the ScanRunner version, parser version, rule-pack version, configuration 
 
 | Stage | Deliverable | Dependencies | Acceptance evidence | Relative effort |
 | --- | --- | --- | --- | --- |
-| 1. Core corrections | Resolve DA-01 through DA-09 and clarify traffic-control semantics | Existing state, scope and evidence code | All applicable independent audit checks pass, with failures converted into mandatory regressions | Medium |
+| 1. Core corrections | Resolve DA-01 through DA-09 plus DA-11, and clarify traffic-control semantics | Existing state, scope and evidence code | All applicable independent audit checks pass, with failures converted into mandatory regressions and stable cross-platform export results | Medium |
 | 2. Profile and packaging repair | Reconcile every advertised profile with policy and ship consistent CLI/help/completion/install payloads | Stage 1 policy classification | Every advertised profile has a valid preview or an explicit availability explanation, with native payload tests | Small to medium |
 | 3. Accurate inventory | Finish normalized asset/service observations, historical import and persistent assessor metadata | Validated evidence and subject identity | CIDR, DNS multi-answer, IPv4/IPv6, transport/state and cross-host association round trips | Medium |
 | 4. Findings and review | Introduce conservative rule candidates, review decisions and technical finding templates | Stable observation schema and rule evidence definitions | Each rule passes positive, negative, ambiguous, malformed, contradictory and mismatched-subject cases, with approval gates tested | Large |
@@ -113,7 +114,7 @@ Improve durability with explicit schema migrations, transactional metadata updat
 
 Publish a support matrix for Python, operating systems, Nmap/NetExec versions and optional adapters. Add controlled installation/completion tests and complete payload checks for companion modules. Kali-specific scanner behavior, network-share permissions, long paths and dual-stack hostname execution need explicit validation.
 
-Expand quality checks with child-process line/branch coverage, mutations of the completion/approval gates, property-based parser inputs and resource-failure tests. Exercise concurrent writers, crash recovery, permission errors, disk exhaustion and corrupt caches. Track per-rule false-positive reports as new regression fixtures.
+Expand quality checks with child-process line/branch coverage, mutations of the completion/approval gates, property-based parser inputs and resource-failure tests. Exercise concurrent writers, crash recovery, permission errors, disk exhaustion and corrupt caches. Retain sanitized fixture directories and child console logs on CI failure before cleanup so intermittent races can be investigated. Add deterministic synchronization points for writer-interleaving tests and repeated Windows stability runs. Track per-rule false-positive reports as new regression fixtures.
 
 Longer-term upgrades can include declarative versioned rule packs, coverage-aware asset trends, reusable engagement/report templates and optional signed or attested manifests linking reports to evidence and reviewer decisions. Each should enter the master backlog with a clear user benefit and measurable acceptance criteria.
 
