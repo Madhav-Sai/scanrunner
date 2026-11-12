@@ -1,5 +1,15 @@
 # ScanRunner improvement and integration report
 
+## Profile repair and remaining release criteria
+
+The 2026-11-12 profile follow-up closes DA-10. All nine supported profiles preview through the CLI, and shell completion matches the catalog. SMB requires an authorization opt-in and note. The audit's profile probe now verifies both acceptance with the declared authorization and refusal without it. This changes that probe's policy model explicitly. See `audit-safety-profiles.json` and `audit-metrics-profile-fixes.json` for the measured source and results.
+
+Compatibility changes are displayed in the catalog and CLI notes. `vuln` is retired. `web` and `web-enum` perform service/version inventory on explicit web ports. `full-fast` uses service/OS detection without implicit NSE selection or a minimum traffic rate. The README documents these changes. Existing raw evidence remains available for review.
+
+The next release criteria are completion of the analyst decision workflow, evidence-linked per-check observations, representative positive/negative/ambiguous rule cases, reliable retest comparisons, and independent accuracy measurement in an authorized lab. P1 drafts still require review before release. A numerical overall rating remains an engineering judgment. Real-world precision, recall and false-positive rate require independently verified labels and sample counts.
+
+CI run `43230052556` passed all six jobs for the preceding evidence/Windows-lock repairs. The profile follow-up requires its own cross-platform CI validation. Roadmap acceptance checkboxes remain subject to their complete criteria.
+
 > Implementation follow-up: nine previously failing guard checks have been repaired; see [EVIDENCE_ACCURACY_FOLLOWUP.md](EVIDENCE_ACCURACY_FOLLOWUP.md) for current results, remaining defects and the labeled-lab measurement procedure. The tables below describe the original audit baseline and roadmap.
 
 This report recommends the next upgrades based on the 2026-11-12 deep audit of pushed implementation `ffef34b`. The evidence, ten reproduced findings and score methodology are recorded in `DEEP_AUDIT_SCORECARD.md`. Recommendations below are proposed work and require their own implementation and acceptance evidence.

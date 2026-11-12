@@ -1,5 +1,7 @@
 # Detection evidence fixes and accuracy measurement
 
+> Subsequent profile repair closes DA-10. The current supported catalog passes 26/26 guard probes under an explicit authorization model, with 134 passing regression tests and one gated skip. See IMPROVEMENT_REPORT.md, audit-safety-profiles.json and audit-metrics-profile-fixes.json. The measurements below preserve the earlier repair increment. Real-world detection accuracy still requires independently verified labels.
+
 2026-11-12 follow-up to the deep audit. **Real-world vulnerability detection accuracy is still unmeasured.** No labeled real-world or controlled-lab dataset has been evaluated. Passing synthetic tests cannot supply that number. ScanRunner orchestrates and interprets Nmap/NetExec; its parser correctness and the underlying scanners' detection performance require separate measurement.
 
 ## Verified corrections

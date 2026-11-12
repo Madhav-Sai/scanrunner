@@ -1,5 +1,7 @@
 # ScanRunner deep audit scorecard
 
+> Current profile follow-up: 26/26 guards pass, with 134 passing regressions and one gated skip. The profile probe now checks authorized profiles with explicit opt-in and also asserts their refusal without opt-in. Compatibility changes and field-measurement gaps are documented in IMPROVEMENT_REPORT.md. Historical measurements below retain their original denominators and source versions.
+
 > Follow-up fixes: [EVIDENCE_ACCURACY_FOLLOWUP.md](EVIDENCE_ACCURACY_FOLLOWUP.md) records 132 passing regressions, one gated skip and 25/26 independent guards passing after repairs. The measurements below remain the historical baseline. Real-world accuracy is still unmeasured; DA-10 remains open; the reproduced DA-11 lock defect is repaired locally, pending cross-platform validation.
 
 The implementation audited at `ffef34b57e4e1dd552ed2401006f359bad1058e9` passes its local regression suite, but independent adversarial checks reproduce important evidence and interpretation gaps. A later CI run on the same application/test source also reproduced an intermittent Windows inventory-export failure. Its real-world vulnerability detection accuracy remains unmeasured. The earlier assessment that all P0 acceptance criteria were complete was premature. SR-P0-04, SR-P0-06, SR-P0-08, SR-P0-11 and SR-P0-12 are reopened.

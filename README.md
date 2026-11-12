@@ -296,16 +296,16 @@ python3 scanrunner.py -f alive.txt -o results -sV -A -vv
 python3 scanrunner.py -f alive.txt -o results -sS -p- -T4
 ```
 
-#### Vulnerability Discovery
+#### TLS Configuration Observations
 
 ```bash
-python3 scanrunner.py -f alive.txt -o results --script vuln -sV
+python3 scanrunner.py -f alive.txt -o results --script ssl-enum-ciphers -sV
 ```
 
 #### Active Directory Assessment
 
 ```bash
-python3 scanrunner.py -f dc.txt -o ad-assessment -sV -A -T4
+python3 scanrunner.py -f dc.txt -o ad-assessment -sV -O -T4
 ```
 
 ---
@@ -585,14 +585,19 @@ python3 scanrunner.py --list-templates
 |---|---|---|
 | `quick` | `-sV -T4 --top-ports 100` | Fast service check |
 | `full` | `-sS -sV -O -T4 -p-` | Thorough TCP scan |
-| `full-fast` | `-sV -A -Pn --min-rate 200 -p-` | Fast full-port scan |
-| `web` | `-sV -p 80,443,8080,8443 --script http-title,http-headers` | Web identification |
-| `web-enum` | `-sV -p 80,443,8080,8443 --script http-title,http-headers,http-enum` | Web enumeration |
-| `ssl-ciphers` | `-sV -p 443,8443,9443 --script ssl-enum-ciphers` | TLS cipher review |
-| `smb-audit` | `-sV -p 139,445 --script smb-os-discovery,smb-protocols,smb-security-mode` | SMB hardening review |
-| `rdp-audit` | `-sV -p 3389 --script rdp-enum-encryption,rdp-ntlm-info` | RDP hardening review |
+| `full-fast` | `-sV -O -Pn -T4 -p-` | Full TCP service/OS scan under configured rate limits |
+| `web` | `-sV -p 80,443,8000,8080,8443` | Web service/version inventory |
+| `web-enum` | `-sV -p 80,443,8000,8080,8443` | Compatibility alias for web service inventory |
+| `ssl-ciphers` | `-sV --script ssl-enum-ciphers` | TLS cipher observations |
+| `smb-audit` | `-sV --script smb-os-discovery,smb-protocols,smb-security-mode` | SMB observations requiring explicit anonymous-session authorization |
+| `rdp-audit` | `-sV --script rdp-enum-encryption,rdp-ntlm-info` | RDP observations |
 | `udp` | `-sU -sV --top-ports 100` | Common UDP services |
-| `vuln` | `-sV --script vuln` | Nmap vulnerability scripts |
+
+The broad `vuln` preset is retired because its script category includes unreviewed checks.
+Choose a supported profile or explicitly select approved scripts. `full-fast` no longer
+expands `-A` or sets a minimum traffic rate. `web` and `web-enum` provide service inventory
+without HTTP NSE enumeration. These compatibility changes are also displayed in profile
+notes. `smb-audit` requires both `--allow-intrusive` and `--authorization-note`.
 
 ```bash
 # Equivalent aliases; use whichever reads best in your workflow.
@@ -703,19 +708,19 @@ python3 -m unittest discover -s tests -v
 ### Full Enumeration
 
 ```bash
--sS -sV -O -A -T4
+-sS -sV -O -T4
 ```
 
-### Vulnerability Discovery
+### TLS Configuration Observations
 
 ```bash
---script vuln -sV
+--script ssl-enum-ciphers -sV
 ```
 
 ### Web Assessment
 
 ```bash
--sV -p 80,443,8080,8443 --script http-title,http-headers
+-sV -p 80,443,8000,8080,8443
 ```
 
 ### Full Port Enumeration
@@ -731,7 +736,7 @@ python3 -m unittest discover -s tests -v
 ## Example Execution
 
 ```bash
-python3 scanrunner.py -f alive.txt -o client-network -sV -A -T4
+python3 scanrunner.py -f alive.txt -o client-network -sV -O -T4
 ```
 
 Output:
@@ -749,7 +754,7 @@ Target: 172.16.5.120
 [+] Host is alive
 
 [+] Command:
-nmap --stats-every 15s -sV -A -T4 -oN client-network/172.16.5.120.txt -- 172.16.5.120
+nmap --stats-every 15s -sV -O -T4 -oN client-network/172.16.5.120.txt -- 172.16.5.120
 ```
 
 ### Hosts Blocking Ping
@@ -916,7 +921,8 @@ Exclusion overlap rejects the requested range. Split ranges around exclusions.
 Scanner arguments and NSE scripts must be reviewed for scope preservation.
 Unreviewed scripts and NetExec modules are refused. Credential operations require
 `--allow-intrusive --authorization-note "Engagement authorization reference"`.
-Legacy broad `vuln`, `full-fast` and `web-enum` profiles currently fail this review.
+The retired `vuln` preset is rejected. Supported profiles are listed by `--list-templates`,
+including authorization requirements and changes to legacy behavior.
 
 ## Durable runs and evidence
 

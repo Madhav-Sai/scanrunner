@@ -1,5 +1,7 @@
 """Offline regressions for misleading completion and security observations."""
 import importlib.util
+import io
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -12,6 +14,33 @@ spec.loader.exec_module(sr)
 
 
 class EvidenceGuards(unittest.TestCase):
+    def test_all_advertised_profiles_preview_through_cli(self):
+        installer_spec = importlib.util.spec_from_file_location("guard_installer", Path(sr.__file__).with_name("install.py"))
+        installer = importlib.util.module_from_spec(installer_spec)
+        installer_spec.loader.exec_module(installer)
+        self.assertEqual(set(installer.PROFILES), set(sr.SCAN_PROFILES))
+        for name in sr.SCAN_PROFILES:
+            with self.subTest(profile=name):
+                argv = ["scanrunner", "-i", "192.0.2.1", "--profile", name, "--dry-run", "--json"]
+                if name in sr.PROFILE_REQUIRES_AUTHORIZATION:
+                    argv += ["--allow-intrusive", "--authorization-note", "Synthetic fixture authorization"]
+                output = io.StringIO()
+                with mock.patch("sys.argv", argv), mock.patch("sys.stdout", output), \
+                        mock.patch("sys.stderr", io.StringIO()), mock.patch.object(sr.subprocess, "Popen") as process, \
+                        mock.patch.object(sr.socket, "getaddrinfo") as dns:
+                    sr.main()
+                self.assertEqual(json.loads(output.getvalue())["commands"][0]["target"], "192.0.2.1")
+                process.assert_not_called()
+                dns.assert_not_called()
+
+    def test_smb_profile_requires_authorization_through_cli(self):
+        argv = ["scanrunner", "-i", "192.0.2.1", "--profile", "smb-audit", "--dry-run"]
+        for extra in [[], ["--allow-intrusive"]]:
+            with self.subTest(extra=extra), mock.patch("sys.argv", argv + extra), \
+                    mock.patch("sys.stderr", io.StringIO()), self.assertRaises(SystemExit) as raised:
+                sr.main()
+            self.assertEqual(raised.exception.code, 2)
+
     def parse(self, details, **kwargs):
         output = "\n".join("SMB 192.0.2.1 445 HOST " + item for item in details)
         return sr.parse_nxc_output(output, ["192.0.2.1"], **kwargs)[0]

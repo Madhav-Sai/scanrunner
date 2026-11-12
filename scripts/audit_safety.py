@@ -169,7 +169,10 @@ def audit(repository):
         rejected = []
         for name, options in backend.SCAN_PROFILES.items():
             try:
-                backend.validate_scan_options(options)
+                authorization = name in backend.PROFILE_REQUIRES_AUTHORIZATION
+                backend.validate_scan_options(options, allow_intrusive=authorization)
+                if authorization:
+                    denied(lambda: backend.validate_scan_options(options))
             except ValueError:
                 rejected.append(name)
         require(not rejected, "Advertised profiles rejected by execution policy: " + ", ".join(rejected))

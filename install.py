@@ -20,7 +20,7 @@ MARKER_END = "# <<< scanrunner completion <<<"
 
 PROFILES = [
     "quick", "full", "full-fast", "web", "web-enum", "ssl-ciphers",
-    "smb-audit", "rdp-audit", "udp", "vuln",
+    "smb-audit", "rdp-audit", "udp",
 ]
 NXC_PROTOCOLS = ["smb", "rdp", "ldap", "winrm", "ssh", "ftp", "mssql", "wmi", "vnc", "nfs"]
 NXC_QUERIES = ["os", "hostname", "smbv1", "smb-signing", "null-auth", "rdp-nla", "all"]

@@ -55,18 +55,24 @@ AUTO_TAB_PROMPT_THRESHOLD = 20
 SCAN_PROFILES = {
     "quick": ["-sV", "-T4", "--top-ports", "100"],
     "full": ["-sS", "-sV", "-O", "-T4", "-p-"],
-    "web": ["-sV", "--script", "http-title,http-headers"],
+    "web": ["-sV", "-p", "80,443,8000,8080,8443"],
     "udp": ["-sU", "-sV", "--top-ports", "100"],
-    "vuln": ["-sV", "--script", "vuln"],
-    "full-fast": ["-sV", "-A", "-Pn", "--min-rate", "200", "-p-"],
+    "full-fast": ["-sV", "-O", "-Pn", "-T4", "-p-"],
     "ssl-ciphers": ["-sV", "--script", "ssl-enum-ciphers"],
-    "web-enum": ["-sV", "--script",
-                 "http-title,http-headers,http-enum"],
+    "web-enum": ["-sV", "-p", "80,443,8000,8080,8443"],
     "smb-audit": ["-sV", "--script",
                   "smb-os-discovery,smb-protocols,smb-security-mode"],
     "rdp-audit": ["-sV", "--script",
                   "rdp-enum-encryption,rdp-ntlm-info"],
 }
+
+PROFILE_NOTES = {
+    "web": "Web service/version inventory on the listed ports.",
+    "web-enum": "Compatibility alias for web service inventory. HTTP script enumeration is unavailable.",
+    "full-fast": "Full TCP service/OS scan with host discovery bypassed. Uses the configured rate ceiling.",
+    "smb-audit": "Starts anonymous SMB sessions. Requires --allow-intrusive and --authorization-note.",
+}
+PROFILE_REQUIRES_AUTHORIZATION = {"smb-audit"}
 
 NXC_QUERY_CHOICES = {
     "os", "hostname", "smbv1", "smb-signing", "null-auth", "rdp-nla", "all"
@@ -1254,7 +1260,7 @@ Aliases:
 
 Templates:
   quick, full, full-fast, web, web-enum, ssl-ciphers, smb-audit,
-  rdp-audit, udp, vuln
+  rdp-audit, udp
 
 Run --list-templates or --template -vv to view the exact arguments in each template.
 
@@ -1263,7 +1269,7 @@ Examples:
   scanrunner -f targets.txt --preset full-fast --host-timeout 10m
 
 Templates are optional. You can always use raw Nmap arguments instead:
-  scanrunner -f targets.txt -sV -A -Pn --min-rate 200 -p-
+  scanrunner -f targets.txt -sV -O -Pn -p-
 
 Nmap verbosity is passed through normally:
   scanrunner -f targets.txt --template full-fast -vv
@@ -1434,6 +1440,8 @@ def print_template_catalog():
     print("\nAvailable templates:\n")
     for name, options in sorted(SCAN_PROFILES.items()):
         print(f"  {name:<14} {' '.join(options)}")
+        if name in PROFILE_NOTES:
+            print(f"                 {PROFILE_NOTES[name]}")
 
 
 def print_topic_help(topic):
@@ -1818,7 +1826,11 @@ def parse_args():
         if unsupported_nxc_options:
             parser.error("NXC mode does not support: " + ", ".join(unsupported_nxc_options))
     if args.profile:
+        if args.profile in PROFILE_REQUIRES_AUTHORIZATION and not args.allow_intrusive:
+            parser.error(f"Profile {args.profile} requires --allow-intrusive and --authorization-note")
         nmap_extra = SCAN_PROFILES[args.profile] + nmap_extra
+        if args.profile in PROFILE_NOTES:
+            print("Profile note: " + PROFILE_NOTES[args.profile], file=sys.stderr)
     if args.exclude:
         nmap_extra.extend(["--exclude", ",".join(args.exclude)])
     if args.exclude_file:

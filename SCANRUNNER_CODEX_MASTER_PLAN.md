@@ -1,5 +1,7 @@
 # ScanRunner — Codex Master Development Plan and TODO
 
+> Profile follow-up closes DA-10 with documented compatibility changes, authorization-aware profile probes, CLI coverage and completion consistency. Current results are 134 regression passes, one gated skip and 26/26 targeted guards passing. See IMPROVEMENT_REPORT.md. No additional roadmap acceptance checkbox is closed by this increment.
+
 > Evidence repair follow-up: see EVIDENCE_ACCURACY_FOLLOWUP.md. Nine previously failing guard checks now pass; 132 regression tests pass with one gated skip. DA-10 remains open; the reproduced DA-11 lock defect is repaired locally, pending cross-platform acceptance. No additional roadmap task is accepted as complete. Real-world accuracy still requires labeled lab evidence.
 
 > Deep audit update, 2026-11-12. SR-P0-04, SR-P0-06, SR-P0-08, SR-P0-11 and SR-P0-12 are reopened. Earlier completion notes are superseded by DEEP_AUDIT_SCORECARD.md and the independent probe results.
