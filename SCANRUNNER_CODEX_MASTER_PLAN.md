@@ -1,4 +1,6 @@
-# ScanRunner â€” Codex Master Development Plan and TODO
+# ScanRunner — Codex Master Development Plan and TODO
+
+> Deep audit update, 2026-11-12. SR-P0-04, SR-P0-06 and SR-P0-08 are reopened. Earlier completion notes are superseded by DEEP_AUDIT_SCORECARD.md and the independent probe results.
 
 > **Repository:** `https://github.com/Madhav-Sai/scanrunner`
 > **Primary platform:** Kali Linux
@@ -11,7 +13,7 @@
 
 **Start with an audit, not a rewrite.** The feature inventory below reflects earlier public documentation and may differ from the actual checked-out code. Treat everything as a hypothesis until verified in source and tests. Never assume a feature is missing merely because it appears on the checklist. Preserve stable CLI behavior and existing capabilities.
 
-**Most important safety requirement:** A goal of *zero false positives* is not technically guaranteeable from automated scanning. Accordingly, the system must be engineered to **never silently turn an uncertain signal into a confirmed security vulnerability**. Prefer an explicit **`Needs Verification`**, **`Inconclusive`**, or **`Not Tested`** outcome over a confident but unsupported claim. Likewise, avoid false negatives by distinguishing *not observed* from *tested and absent*. The system must not automatically issue a final client-ready â€œConfirmedâ€ finding without sufficiently strong, reproducible evidence and analyst approval.
+**Most important safety requirement:** A goal of *zero false positives* is not technically guaranteeable from automated scanning. Accordingly, the system must be engineered to **never silently turn an uncertain signal into a confirmed security vulnerability**. Prefer an explicit **`Needs Verification`**, **`Inconclusive`**, or **`Not Tested`** outcome over a confident but unsupported claim. Likewise, avoid false negatives by distinguishing *not observed* from *tested and absent*. The system must not automatically issue a final client-ready “Confirmed” finding without sufficiently strong, reproducible evidence and analyst approval.
 
 ---
 
@@ -70,56 +72,56 @@ Potential engineering risks to audit (not pre-judged bugs): file-backed status u
 
 Checkboxes are intentionally unchecked. Assign actual issue links, commit hashes, test evidence, and implementation status as work proceeds. **P0 must precede P1/P2 unless dependency analysis justifies otherwise.**
 
-### P0 â€” Repository audit, safety, and reliability
+### P0 — Repository audit, safety, and reliability
 
-- [x] **SR-P0-01 â€” Baseline audit.** Read `README.md`, release/add-on notes, entry points, parser, scan execution, data stores, NetExec integration, reports, packaging, and tests. Run existing tests (or record precisely why they cannot run). Deliver `AUDIT.md`: verified current features, reproducible defects, risks, prioritized gaps, dependencies, and safe migration approach. **Accept:** every claimed existing feature references code paths and/or test evidence.
-- [x] **SR-P0-02 â€” Create regression fixtures.** Save representative sanitized Nmap XML, service scripts, normal/empty/partial/broken outputs, NetExec output, IPv4/IPv6, CIDR, DNS multi-answer, TCP/UDP, host down, filtered ports, and process failures. **Accept:** fixtures are synthetic or explicitly sanitized; baseline tests pass without contacting live client hosts.
-- [x] **SR-P0-03 â€” Scope enforcement.** Validate exact authorized addresses/CIDRs/hostnames, exclude lists, DNS resolution, and any scan target derived from plugin output. Revalidate resolved IPs immediately before execution; reject out-of-scope resolved addresses and redirect/crawl pivots by default. Handle IPv4/IPv6 and DNS rebinding/race risk conservatively. **Accept:** deny-by-default tests for mixed in/out-of-scope DNS answers and target expansion.
-- [x] **SR-P0-04 â€” Dry run and impact preview.** Display exact command argv, tool, target addresses, scan profile, required privileges, traffic intensity, side effects, and output destinations without executing. **Accept:** dry-run tests assert zero spawned scanner processes or network actions.
-- [x] **SR-P0-05 â€” Durable state and versioned runs.** Introduce lightweight SQLite state or justify an equally robust alternative. Track engagement IDs, immutable run IDs, targets, command fingerprints, jobs, timestamps, exit codes, parser success, status transitions, and artifact locations. Use transactions and appropriate SQLite busy handling. **Accept:** concurrent updates cannot corrupt state; all previous raw outputs remain intact.
-- [x] **SR-P0-06 â€” Correct completion and resume semantics.** Completion requires validated process outcome **and** sufficient, parseable, associated result evidence; failure/timeout/partial/empty responses are different states. Resume checks tool version, normalized target, arguments, profile, scope, and other consequential options via stable fingerprint. **Accept:** changing a relevant option cannot silently mark work as completed.
-- [x] **SR-P0-07 â€” Robust subprocess management.** Use argument arrays (no unsafe `shell=True`), sensible timeouts, graceful cancellation, bounded retries/backoff, child process cleanup, and reliable Ctrl+C handling. **Accept:** interrupted scans preserve partial evidence; do not become â€œCompleted.â€
-- [x] **SR-P0-08 â€” Concurrency safeguards.** Add optional global/per-subnet concurrency and scan-rate ceilings, atomic updates, unique job ownership, and controlled backpressure. **Accept:** deterministic tests cover concurrent workers, crashes, duplicate claims, and retries.
-- [x] **SR-P0-09 â€” Raw evidence preservation.** Save exact stdout/stderr, original XML, exit status, command argv with secrets redacted, scanner version, UTC timestamps, and relevant config in immutable run-specific paths. Hash raw evidence (SHA-256). **Accept:** generation/retest cannot change earlier run artifacts; missing/corrupt artifacts are flagged.
-- [x] **SR-P0-10 â€” Secure local data handling.** Prevent path traversal, unsafe XML entity expansion, command injection, log credential leaks, excessive filesystem permissions, and accidental exports of secrets or personal data. **Accept:** negative security tests and basic dependency checks pass.
-- [x] **SR-P0-11 â€” Backwards compatibility.** Document current CLI syntax and defaults before refactoring; provide migration/back-compat behavior for output paths and metadata. **Accept:** existing CLI regression suite and packaging tests pass.
-- [x] **SR-P0-12 â€” CI quality gate.** Add lint/static analysis, automated tests, fixture-based integration tests, and packaging checks. **Accept:** CI is reproducible without external scan targets or mandatory optional tools.
+- [x] **SR-P0-01 — Baseline audit.** Read `README.md`, release/add-on notes, entry points, parser, scan execution, data stores, NetExec integration, reports, packaging, and tests. Run existing tests (or record precisely why they cannot run). Deliver `AUDIT.md`: verified current features, reproducible defects, risks, prioritized gaps, dependencies, and safe migration approach. **Accept:** every claimed existing feature references code paths and/or test evidence.
+- [x] **SR-P0-02 — Create regression fixtures.** Save representative sanitized Nmap XML, service scripts, normal/empty/partial/broken outputs, NetExec output, IPv4/IPv6, CIDR, DNS multi-answer, TCP/UDP, host down, filtered ports, and process failures. **Accept:** fixtures are synthetic or explicitly sanitized; baseline tests pass without contacting live client hosts.
+- [x] **SR-P0-03 — Scope enforcement.** Validate exact authorized addresses/CIDRs/hostnames, exclude lists, DNS resolution, and any scan target derived from plugin output. Revalidate resolved IPs immediately before execution; reject out-of-scope resolved addresses and redirect/crawl pivots by default. Handle IPv4/IPv6 and DNS rebinding/race risk conservatively. **Accept:** deny-by-default tests for mixed in/out-of-scope DNS answers and target expansion.
+- [ ] **SR-P0-04 — Dry run and impact preview.** Display exact command argv, tool, target addresses, scan profile, required privileges, traffic intensity, side effects, and output destinations without executing. **Accept:** dry-run tests assert zero spawned scanner processes or network actions.
+- [x] **SR-P0-05 — Durable state and versioned runs.** Introduce lightweight SQLite state or justify an equally robust alternative. Track engagement IDs, immutable run IDs, targets, command fingerprints, jobs, timestamps, exit codes, parser success, status transitions, and artifact locations. Use transactions and appropriate SQLite busy handling. **Accept:** concurrent updates cannot corrupt state; all previous raw outputs remain intact.
+- [ ] **SR-P0-06 — Correct completion and resume semantics.** Completion requires validated process outcome **and** sufficient, parseable, associated result evidence; failure/timeout/partial/empty responses are different states. Resume checks tool version, normalized target, arguments, profile, scope, and other consequential options via stable fingerprint. **Accept:** changing a relevant option cannot silently mark work as completed.
+- [x] **SR-P0-07 — Robust subprocess management.** Use argument arrays (no unsafe `shell=True`), sensible timeouts, graceful cancellation, bounded retries/backoff, child process cleanup, and reliable Ctrl+C handling. **Accept:** interrupted scans preserve partial evidence; do not become “Completed.”
+- [ ] **SR-P0-08 — Concurrency safeguards.** Add optional global/per-subnet concurrency and scan-rate ceilings, atomic updates, unique job ownership, and controlled backpressure. **Accept:** deterministic tests cover concurrent workers, crashes, duplicate claims, and retries.
+- [x] **SR-P0-09 — Raw evidence preservation.** Save exact stdout/stderr, original XML, exit status, command argv with secrets redacted, scanner version, UTC timestamps, and relevant config in immutable run-specific paths. Hash raw evidence (SHA-256). **Accept:** generation/retest cannot change earlier run artifacts; missing/corrupt artifacts are flagged.
+- [x] **SR-P0-10 — Secure local data handling.** Prevent path traversal, unsafe XML entity expansion, command injection, log credential leaks, excessive filesystem permissions, and accidental exports of secrets or personal data. **Accept:** negative security tests and basic dependency checks pass.
+- [x] **SR-P0-11 — Backwards compatibility.** Document current CLI syntax and defaults before refactoring; provide migration/back-compat behavior for output paths and metadata. **Accept:** existing CLI regression suite and packaging tests pass.
+- [x] **SR-P0-12 — CI quality gate.** Add lint/static analysis, automated tests, fixture-based integration tests, and packaging checks. **Accept:** CI is reproducible without external scan targets or mandatory optional tools.
 
-### P1 â€” Accurate inventory and everyday VAPT productivity
+### P1 — Accurate inventory and everyday VAPT productivity
 
-- [ ] **SR-P1-01 â€” Normalized asset model.** Capture input target, resolved addresses, individual discovered hosts, DNS names with source, IPv4/IPv6, OS guesses with confidence, TCP/UDP port state, service/product/version, timestamp, scanner/run identity, and raw evidence references. **Accept:** CIDR-to-multiple-host and hostname-to-multiple-IP mappings are preserved; no cross-host result leakage.
-- [ ] **SR-P1-02 â€” Inventory enrichment.** Add assessor-managed engagement/customer, subnet, asset owner, site/location, environment, criticality, tags, and notes. **Accept:** metadata is distinct from scanner observations and survives rescans.
-- [ ] **SR-P1-03 â€” Accurate service-state normalization.** Distinguish `open`, `closed`, `filtered`, `open|filtered`, `unknown`, unreachable, skipped, and not tested. Distinguish TCP from UDP. **Accept:** exports never label `open|filtered` as confirmed `open` or missing results as closed.
-- [ ] **SR-P1-04 â€” Evidence-linked observation engine.** Parse only documented, tested outputs and emit standardized observations with check ID/version, host/port/protocol, test preconditions, raw artifact hash, line/field evidence, outcome, and confidence. **Accept:** all machine-generated observations trace back to preserved scanner data.
-- [ ] **SR-P1-05 â€” Conservative finding rules.** Add independently tested checks for SMBv1, SMB signing requirements, RDP NLA, TLS protocol/cipher/certificate issues, SSH algorithms, DNS recursion, anonymous FTP **only if positively tested**, and exposed management interfaces as *exposure observations* rather than default vulnerabilities. **Accept:** each rule has positive, negative, ambiguous, contradictory, and malformed fixtures.
-- [ ] **SR-P1-06 â€” Human verification workflow.** Statuses: `Not Tested`, `Potential`, `Needs Verification`, `Confirmed`, `False Positive`, `Accepted Risk`, `Inconclusive`, `Remediated (Verified)`. Require analyst approval, timestamp, and supporting evidence before `Confirmed`. **Accept:** no ambiguous machine result can create a confirmed client finding by default.
-- [ ] **SR-P1-07 â€” High-quality finding template.** Include title, concise plain-language description, affected targets (IP/hostname/port), severity and vector **only when justified**, impact, evidence, remediation, references, test limitations, analyst notes, and retest status. **Accept:** missing values display `Not determined` or `Not tested`, never guessed values.
-- [ ] **SR-P1-08 â€” Accurate baseline and retest matching.** Match stable finding identity plus affected asset/service/check, preserving history even if IP/hostname changes. Compare old/new **equivalent** evidence. **Accept:** an absent port, host down, scanner failure, blocked access, or missing plugin never automatically counts as remediation.
-- [ ] **SR-P1-09 â€” Clear retest outcome model.** Distinguish `Still Present`, `Potentially Remediated`, `Remediated (Verified)`, `Not Retested`, `Inconclusive`, `Unable to Assess`. **Accept:** verification requires the relevant control was retested with comparable scope and adequate test quality.
-- [ ] **SR-P1-10 â€” Useful exports.** Extend (do not unnecessarily replace) CSV, JSON, HTML, and add `.xlsx` using an optional maintained library. Include inventory, findings, run metadata, error/coverage summary, retest outcomes, evidence references, and analyst notes. **Accept:** a round-trip schema test checks row counts, IP/host/port association, status, dates, and proper escaping; no formula injection in spreadsheets.
-- [ ] **SR-P1-11 â€” Executive and technical views.** Provide scope summary, tested/pending/failed assets, coverage limitations, open service counts, potential vs confirmed findings, severity only for confirmed/justified findings, and remediation progress. **Accept:** summaries do not imply complete coverage when there were failed/skipped/not-tested targets.
-- [ ] **SR-P1-12 â€” Scan profiles upgrade.** Audit existing profiles and add only missing, documented profiles for fast TCP discovery, full TCP, common UDP, web enumeration, TLS, SMB, RDP, SSH, DNS, AD service discovery, and non-intrusive baseline. **Accept:** every profile previews argv/required privileges/risk, enforces scope, and supports bounded user overrides.
-- [ ] **SR-P1-13 â€” Safe import workflow.** Ingest historical Nmap XML and optional tool output without rerunning scans; validate origin, parser version, target identity, and imported-evidence trust. **Accept:** imports are marked as imported and do not pretend to be newly executed scans.
-- [ ] **SR-P1-14 â€” Search/filter/status CLI.** Filter by engagement, IP/CIDR, hostname, site, owner, service, port, protocol, run, status, and finding state. Provide readable progress, queued job review, and failed target retry. **Accept:** no regression in non-interactive usage and JSON output remains machine-readable.
+- [ ] **SR-P1-01 — Normalized asset model.** Capture input target, resolved addresses, individual discovered hosts, DNS names with source, IPv4/IPv6, OS guesses with confidence, TCP/UDP port state, service/product/version, timestamp, scanner/run identity, and raw evidence references. **Accept:** CIDR-to-multiple-host and hostname-to-multiple-IP mappings are preserved; no cross-host result leakage.
+- [ ] **SR-P1-02 — Inventory enrichment.** Add assessor-managed engagement/customer, subnet, asset owner, site/location, environment, criticality, tags, and notes. **Accept:** metadata is distinct from scanner observations and survives rescans.
+- [ ] **SR-P1-03 — Accurate service-state normalization.** Distinguish `open`, `closed`, `filtered`, `open|filtered`, `unknown`, unreachable, skipped, and not tested. Distinguish TCP from UDP. **Accept:** exports never label `open|filtered` as confirmed `open` or missing results as closed.
+- [ ] **SR-P1-04 — Evidence-linked observation engine.** Parse only documented, tested outputs and emit standardized observations with check ID/version, host/port/protocol, test preconditions, raw artifact hash, line/field evidence, outcome, and confidence. **Accept:** all machine-generated observations trace back to preserved scanner data.
+- [ ] **SR-P1-05 — Conservative finding rules.** Add independently tested checks for SMBv1, SMB signing requirements, RDP NLA, TLS protocol/cipher/certificate issues, SSH algorithms, DNS recursion, anonymous FTP **only if positively tested**, and exposed management interfaces as *exposure observations* rather than default vulnerabilities. **Accept:** each rule has positive, negative, ambiguous, contradictory, and malformed fixtures.
+- [ ] **SR-P1-06 — Human verification workflow.** Statuses: `Not Tested`, `Potential`, `Needs Verification`, `Confirmed`, `False Positive`, `Accepted Risk`, `Inconclusive`, `Remediated (Verified)`. Require analyst approval, timestamp, and supporting evidence before `Confirmed`. **Accept:** no ambiguous machine result can create a confirmed client finding by default.
+- [ ] **SR-P1-07 — High-quality finding template.** Include title, concise plain-language description, affected targets (IP/hostname/port), severity and vector **only when justified**, impact, evidence, remediation, references, test limitations, analyst notes, and retest status. **Accept:** missing values display `Not determined` or `Not tested`, never guessed values.
+- [ ] **SR-P1-08 — Accurate baseline and retest matching.** Match stable finding identity plus affected asset/service/check, preserving history even if IP/hostname changes. Compare old/new **equivalent** evidence. **Accept:** an absent port, host down, scanner failure, blocked access, or missing plugin never automatically counts as remediation.
+- [ ] **SR-P1-09 — Clear retest outcome model.** Distinguish `Still Present`, `Potentially Remediated`, `Remediated (Verified)`, `Not Retested`, `Inconclusive`, `Unable to Assess`. **Accept:** verification requires the relevant control was retested with comparable scope and adequate test quality.
+- [ ] **SR-P1-10 — Useful exports.** Extend (do not unnecessarily replace) CSV, JSON, HTML, and add `.xlsx` using an optional maintained library. Include inventory, findings, run metadata, error/coverage summary, retest outcomes, evidence references, and analyst notes. **Accept:** a round-trip schema test checks row counts, IP/host/port association, status, dates, and proper escaping; no formula injection in spreadsheets.
+- [ ] **SR-P1-11 — Executive and technical views.** Provide scope summary, tested/pending/failed assets, coverage limitations, open service counts, potential vs confirmed findings, severity only for confirmed/justified findings, and remediation progress. **Accept:** summaries do not imply complete coverage when there were failed/skipped/not-tested targets.
+- [ ] **SR-P1-12 — Scan profiles upgrade.** Audit existing profiles and add only missing, documented profiles for fast TCP discovery, full TCP, common UDP, web enumeration, TLS, SMB, RDP, SSH, DNS, AD service discovery, and non-intrusive baseline. **Accept:** every profile previews argv/required privileges/risk, enforces scope, and supports bounded user overrides.
+- [ ] **SR-P1-13 — Safe import workflow.** Ingest historical Nmap XML and optional tool output without rerunning scans; validate origin, parser version, target identity, and imported-evidence trust. **Accept:** imports are marked as imported and do not pretend to be newly executed scans.
+- [ ] **SR-P1-14 — Search/filter/status CLI.** Filter by engagement, IP/CIDR, hostname, site, owner, service, port, protocol, run, status, and finding state. Provide readable progress, queued job review, and failed target retry. **Accept:** no regression in non-interactive usage and JSON output remains machine-readable.
 
-### P2 â€” Optional extensions, never at the expense of accuracy
+### P2 — Optional extensions, never at the expense of accuracy
 
-- [ ] **SR-P2-01 â€” Plugin adapter contract.** Separate availability/version detection, argv creation, opt-in impact approval, execution, output parsing, normalization, error handling, and fixture-based tests. **Accept:** missing plugins do not break core scanning.
-- [ ] **SR-P2-02 â€” NetExec result enhancement.** Improve structured capture for supported, approved SMB/RDP/AD configuration observations without credential attacks by default. **Accept:** NXC output ambiguities produce `Needs Verification`, not confirmed weaknesses.
-- [ ] **SR-P2-03 â€” Optional `httpx` enrichment.** Discover HTTP properties from scoped, explicitly selected targets without automatic off-scope following. **Accept:** no redirect to out-of-scope addresses; collected data labels confidence and tool source.
-- [ ] **SR-P2-04 â€” Optional `testssl.sh` integration.** Parse supported TLS protocol/cipher/certificate results with parser compatibility tests. **Accept:** conflicting test results are surfaced instead of silently selecting the worst outcome.
-- [ ] **SR-P2-05 â€” Optional Nuclei integration.** Require reviewed, explicitly approved templates, pinned template identity/version, severity/impact policy, and opt-in execution. Treat template matches as *unverified* unless the template and proof meet a documented confirmation standard **and analyst approves**. **Accept:** no implicit scan escalation, default exploitation, or automatic confirmed CVEs.
-- [ ] **SR-P2-06 â€” Offline vulnerability reference support.** Optional manually downloaded/versioned advisory data; correlate versions conservatively with distro backports and vendor advisories. **Accept:** banner-only CVE matches remain potential; source/currency/uncertainty recorded.
-- [ ] **SR-P2-07 â€” Lightweight local TUI.** Assessment selection, queue/status view, host and findings browser, reviewer decisions, evidence viewer, and export launcher. **Accept:** TUI is optional and does not degrade CLI or offline use.
-- [ ] **SR-P2-08 â€” Optional local scheduling/notifications.** Clearly configured scheduled jobs and privacy-safe notifications; revalidate scope/authorization at each execution. **Accept:** no hidden recurring scan or leaked client results.
-- [ ] **SR-P2-09 â€” Privacy-safe sharing.** Anonymized report exports, redaction preview, and export allowlist for sensitive fields. **Accept:** test data with credentials/tokens remains absent from safe-share outputs.
+- [ ] **SR-P2-01 — Plugin adapter contract.** Separate availability/version detection, argv creation, opt-in impact approval, execution, output parsing, normalization, error handling, and fixture-based tests. **Accept:** missing plugins do not break core scanning.
+- [ ] **SR-P2-02 — NetExec result enhancement.** Improve structured capture for supported, approved SMB/RDP/AD configuration observations without credential attacks by default. **Accept:** NXC output ambiguities produce `Needs Verification`, not confirmed weaknesses.
+- [ ] **SR-P2-03 — Optional `httpx` enrichment.** Discover HTTP properties from scoped, explicitly selected targets without automatic off-scope following. **Accept:** no redirect to out-of-scope addresses; collected data labels confidence and tool source.
+- [ ] **SR-P2-04 — Optional `testssl.sh` integration.** Parse supported TLS protocol/cipher/certificate results with parser compatibility tests. **Accept:** conflicting test results are surfaced instead of silently selecting the worst outcome.
+- [ ] **SR-P2-05 — Optional Nuclei integration.** Require reviewed, explicitly approved templates, pinned template identity/version, severity/impact policy, and opt-in execution. Treat template matches as *unverified* unless the template and proof meet a documented confirmation standard **and analyst approves**. **Accept:** no implicit scan escalation, default exploitation, or automatic confirmed CVEs.
+- [ ] **SR-P2-06 — Offline vulnerability reference support.** Optional manually downloaded/versioned advisory data; correlate versions conservatively with distro backports and vendor advisories. **Accept:** banner-only CVE matches remain potential; source/currency/uncertainty recorded.
+- [ ] **SR-P2-07 — Lightweight local TUI.** Assessment selection, queue/status view, host and findings browser, reviewer decisions, evidence viewer, and export launcher. **Accept:** TUI is optional and does not degrade CLI or offline use.
+- [ ] **SR-P2-08 — Optional local scheduling/notifications.** Clearly configured scheduled jobs and privacy-safe notifications; revalidate scope/authorization at each execution. **Accept:** no hidden recurring scan or leaked client results.
+- [ ] **SR-P2-09 — Privacy-safe sharing.** Anonymized report exports, redaction preview, and export allowlist for sensitive fields. **Accept:** test data with credentials/tokens remains absent from safe-share outputs.
 
-### P3 â€” Consider only after P0/P1 stability
+### P3 — Consider only after P0/P1 stability
 
-- [ ] **SR-P3-01 â€” Modular rule packs** with stable IDs, schema, versioning, explicit evidence requirements, and regression fixture coverage.
-- [ ] **SR-P3-02 â€” Asset lifecycle/trend analytics** with explicit confidence/coverage indicators and subnet/site comparisons.
-- [ ] **SR-P3-03 â€” Engagement templates and reusable report layouts** with client-safe fields and independently testable output schemas.
-- [ ] **SR-P3-04 â€” Optional signed/attested report manifest** binding scans, parser/rules versions, analyst approval, and exported evidence hashes.
+- [ ] **SR-P3-01 — Modular rule packs** with stable IDs, schema, versioning, explicit evidence requirements, and regression fixture coverage.
+- [ ] **SR-P3-02 — Asset lifecycle/trend analytics** with explicit confidence/coverage indicators and subnet/site comparisons.
+- [ ] **SR-P3-03 — Engagement templates and reusable report layouts** with client-safe fields and independently testable output schemas.
+- [ ] **SR-P3-04 — Optional signed/attested report manifest** binding scans, parser/rules versions, analyst approval, and exported evidence hashes.
 
 ---
 
@@ -155,19 +157,19 @@ A missing prerequisite, scanner timeout, malformed output, unauthorized scope, o
 
 | Signal | Prohibited shortcut | Required behavior |
 |---|---|---|
-| Port 445 open | â€œSMB signing disabledâ€ | Determine SMB dialect and whether signing is required from verified negotiation/check output; ambiguous state = `Needs Verification`. |
-| Port 3389 open | â€œRDP NLA disabledâ€ | Require a specific, validated protocol-level check; a reachable RDP port alone proves only exposure. |
-| TLS 1.0/1.1 | â€œVulnerableâ€ from an unsupported or failed probe | Require a successful handshake establishing the specific protocol on the correct endpoint/SNI; report tested versions and failures distinctly. |
-| TLS certificate error | â€œExpired certificateâ€ for every trust error | Separately evaluate validity dates, chain trust, hostname mismatch, self-signed status, SNI, and observation time. |
-| SSH banner/version | â€œKnown CVE exploitableâ€ | Check vendor/distro patch and backport context; banner-only identification is `Potential` at most. |
-| Product/version banner | â€œCritical CVEâ€ | Correlate authoritative applicable advisories and configuration prerequisites; do not create confirmed CVEs from a banner. |
-| DNS recursion | â€œOpen resolverâ€ because port 53 is open | Require a suitably scoped recursion test and validated response semantics; avoid mixing authoritative and recursive behavior. |
-| FTP port 21 | â€œAnonymous FTP allowedâ€ | Require an explicitly permitted authentication attempt and positive result; do not infer from banner. |
-| Missing port on rescan | â€œFixedâ€ | Ensure same target, protocol, scan coverage, reachability, and adequate control-specific evidence; otherwise `Inconclusive`. |
-| No scanner finding | â€œSecureâ€ | State `Not observed in tested scope`, with scan coverage and limitations. |
-| Nuclei match | â€œConfirmed exploitableâ€ | Treat as candidate unless evidence and applicability independently reviewed. |
-| Nmap OS guess | â€œConfirmed Windows/Linux versionâ€ | Label OS detection confidence and preserve alternate guesses where available. |
-| `open|filtered` UDP | â€œOpen serviceâ€ | Keep exact ambiguous state and document inability to determine openness. |
+| Port 445 open | “SMB signing disabled” | Determine SMB dialect and whether signing is required from verified negotiation/check output; ambiguous state = `Needs Verification`. |
+| Port 3389 open | “RDP NLA disabled” | Require a specific, validated protocol-level check; a reachable RDP port alone proves only exposure. |
+| TLS 1.0/1.1 | “Vulnerable” from an unsupported or failed probe | Require a successful handshake establishing the specific protocol on the correct endpoint/SNI; report tested versions and failures distinctly. |
+| TLS certificate error | “Expired certificate” for every trust error | Separately evaluate validity dates, chain trust, hostname mismatch, self-signed status, SNI, and observation time. |
+| SSH banner/version | “Known CVE exploitable” | Check vendor/distro patch and backport context; banner-only identification is `Potential` at most. |
+| Product/version banner | “Critical CVE” | Correlate authoritative applicable advisories and configuration prerequisites; do not create confirmed CVEs from a banner. |
+| DNS recursion | “Open resolver” because port 53 is open | Require a suitably scoped recursion test and validated response semantics; avoid mixing authoritative and recursive behavior. |
+| FTP port 21 | “Anonymous FTP allowed” | Require an explicitly permitted authentication attempt and positive result; do not infer from banner. |
+| Missing port on rescan | “Fixed” | Ensure same target, protocol, scan coverage, reachability, and adequate control-specific evidence; otherwise `Inconclusive`. |
+| No scanner finding | “Secure” | State `Not observed in tested scope`, with scan coverage and limitations. |
+| Nuclei match | “Confirmed exploitable” | Treat as candidate unless evidence and applicability independently reviewed. |
+| Nmap OS guess | “Confirmed Windows/Linux version” | Label OS detection confidence and preserve alternate guesses where available. |
+| `open|filtered` UDP | “Open service” | Keep exact ambiguous state and document inability to determine openness. |
 
 ### 4.5 Rules and severity governance
 
@@ -255,7 +257,7 @@ These are **desired examples**. Adapt to the established CLI if adding subcomman
 - Show expected impact per profile: default-safe, potentially noisy, credentialed, or intrusive. Explicit opt-in for high-impact modes; do not include risky operations in default profiles.
 - Avoid automatically interpreting a network-level ICMP failure as a host being down when other services may be reachable; retain scan methods and limitations.
 - Provide timeouts, bounded retries, global/per-subnet rate limits, optional maintenance windows, and clear abort behavior.
-- Use local test fixtures for development; **do not scan the repository ownerâ€™s websites, client networks, or example IPs** to prove functionality.
+- Use local test fixtures for development; **do not scan the repository owner’s websites, client networks, or example IPs** to prove functionality.
 
 ---
 
@@ -288,7 +290,7 @@ Show `Original Evidence`, `New Evidence`, `Comparability`, `Outcome`, and `Revie
 
 ## 8. Codex execution procedure
 
-### Step A â€” Baseline (mandatory first)
+### Step A — Baseline (mandatory first)
 
 1. Read repository files and this entire plan.
 2. Print the current code architecture and existing CLI feature map.
@@ -296,7 +298,7 @@ Show `Original Evidence`, `New Evidence`, `Comparability`, `Outcome`, and `Revie
 4. Produce `AUDIT.md` with **verified** present features, confirmed defects, risks, dependencies, and scope of proposed changes.
 5. Update this document only to reflect confirmed duplicates, obsolete requests, and audit findings; **do not check off implementation tasks merely because a feature exists** unless it meets the acceptance criteria and is tested.
 
-### Step B â€” Implement P0 in small increments
+### Step B — Implement P0 in small increments
 
 For each task:
 
@@ -309,7 +311,7 @@ For each task:
 
 Do not proceed to optional feature expansion while core state, scope, and evidence safety remain unreliable.
 
-### Step C â€” Add P1 findings only with gating
+### Step C — Add P1 findings only with gating
 
 For every proposed scanner finding rule:
 
@@ -323,11 +325,11 @@ For every proposed scanner finding rule:
 
 Do **not** ship a check if the evidence semantics are unclear; mark it `Blocked: insufficient validated evidence` with rationale and required next tests.
 
-### Step D â€” Optional integrations
+### Step D — Optional integrations
 
 Integrate P2 tools individually. Avoid requiring users to install all of them. Pin/record relevant external tool and rule/template versions. Preserve raw output and local-only operation.
 
-### Step E â€” Final review
+### Step E — Final review
 
 - Run the complete regression suite and security tests.
 - Confirm no live public/client scan was performed during testing.
@@ -365,6 +367,7 @@ Next recommended task:
 
 **The desired result is a reliable VAPT assistant, not a tool that generates confident-looking but unverified findings.**
 
+
 ## Checkout progress (2026-11-12)
 See AUDIT.md for the baseline source audit, verification limits, and prioritized migration. Baseline tests could not start: no usable Python interpreter found. All acceptance checkboxes remain unchecked. Repository copy is the living backlog; the original Downloads document is unchanged.
 
@@ -374,3 +377,7 @@ SR-P0-02 accepted: synthetic fixtures and offline Windows-compatible scanner moc
 
 ### Increment 3
 SQLite run/job/target state, transactional claims, bounded capture and retries, immutable evidence manifests, fingerprint/hash resume gates, shared concurrency ceilings, secure storage, injection guards and compatibility tests are implemented. See AUDIT.md and verification-p0-release.log for test evidence. P0-12 remains pending the first CI execution across all operating systems.
+
+## Deep audit and improvement report, 2026-11-12
+
+DEEP_AUDIT_SCORECARD.md records the independent assessment. The pushed baseline has 121 passing regression tests and one gated integration test, while 16 of 26 targeted audit checks pass. Ten failing checks remain open. These measurements do not establish real-world vulnerability accuracy. SR-P0-04, SR-P0-06 and SR-P0-08 are reopened for authorization/impact, completion semantics and traffic-control limitations. IMPROVEMENT_REPORT.md describes corrections, future upgrades, optional integrations, drawbacks, acceptance criteria and accuracy benchmarking. No P1/P2/P3 task is accepted as complete by these reports.

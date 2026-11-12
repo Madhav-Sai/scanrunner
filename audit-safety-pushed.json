@@ -1,0 +1,139 @@
+{
+  "source_sha256": "76a0d758a80791d82200378f66e665307b498afdce0621ebb367b4d21e1ce89d",
+  "probe_count": 26,
+  "passed": 16,
+  "failed": 10,
+  "probes": [
+    {
+      "check": "empty_scope_denied",
+      "passed": true,
+      "detail": "Expected guard held"
+    },
+    {
+      "check": "mixed_dns_denied",
+      "passed": true,
+      "detail": "Expected guard held"
+    },
+    {
+      "check": "changed_dns_denied",
+      "passed": true,
+      "detail": "Expected guard held"
+    },
+    {
+      "check": "extra_targets_denied",
+      "passed": true,
+      "detail": "Expected guard held"
+    },
+    {
+      "check": "unreviewed_nse_denied",
+      "passed": true,
+      "detail": "Expected guard held"
+    },
+    {
+      "check": "credential_operations_require_opt_in",
+      "passed": true,
+      "detail": "Expected guard held"
+    },
+    {
+      "check": "dry_run_has_zero_network_processes_or_writes",
+      "passed": true,
+      "detail": "Expected guard held"
+    },
+    {
+      "check": "xml_entity_payload_denied",
+      "passed": true,
+      "detail": "Expected guard held"
+    },
+    {
+      "check": "ambiguous_udp_not_promoted_to_open",
+      "passed": true,
+      "detail": "Expected guard held"
+    },
+    {
+      "check": "nonzero_exit_not_complete",
+      "passed": true,
+      "detail": "Expected guard held"
+    },
+    {
+      "check": "mismatched_host_not_complete",
+      "passed": true,
+      "detail": "Expected guard held"
+    },
+    {
+      "check": "timeout_xml_not_complete",
+      "passed": true,
+      "detail": "Expected guard held"
+    },
+    {
+      "check": "malformed_port_cannot_complete",
+      "passed": false,
+      "detail": "Malformed port was accepted as ('COMPLETE', True)"
+    },
+    {
+      "check": "contradictory_down_xml_cannot_validate",
+      "passed": false,
+      "detail": "Contradictory up-host/counter evidence was accepted as ('DOWN', True)"
+    },
+    {
+      "check": "empty_netexec_not_marked_complete",
+      "passed": false,
+      "detail": "Empty NetExec stdout became COMPLETE with parser_ok=1"
+    },
+    {
+      "check": "netexec_unsolicited_hosts_excluded",
+      "passed": false,
+      "detail": "Unrequested out-of-scope host entered normal result rows"
+    },
+    {
+      "check": "netexec_contradiction_is_inconclusive",
+      "passed": false,
+      "detail": "Contradiction was silently resolved to False"
+    },
+    {
+      "check": "netexec_generic_success_not_authentication_proof",
+      "passed": false,
+      "detail": "Unrelated success marker became successful anonymous authentication"
+    },
+    {
+      "check": "netexec_protocol_evidence_not_cross_associated",
+      "passed": false,
+      "detail": "SMB signing evidence became associated with RDP port 3389"
+    },
+    {
+      "check": "anonymous_session_nse_requires_explicit_opt_in",
+      "passed": false,
+      "detail": "Input was accepted"
+    },
+    {
+      "check": "completion_api_requires_scan_artifacts",
+      "passed": false,
+      "detail": "State API accepted completion without any scan artifacts"
+    },
+    {
+      "check": "corrupt_artifact_blocks_resume",
+      "passed": true,
+      "detail": "Expected guard held"
+    },
+    {
+      "check": "advertised_profiles_match_execution_policy",
+      "passed": false,
+      "detail": "Advertised profiles rejected by execution policy: web, vuln, full-fast, web-enum"
+    },
+    {
+      "check": "duplicate_job_ownership_denied",
+      "passed": true,
+      "detail": "Expected guard held"
+    },
+    {
+      "check": "csv_formula_neutralized",
+      "passed": true,
+      "detail": "Expected guard held"
+    },
+    {
+      "check": "secret_pattern_redacted",
+      "passed": true,
+      "detail": "Expected guard held"
+    }
+  ],
+  "interpretation": "Targeted guard checks only. This is not a vulnerability detection accuracy estimate."
+}
