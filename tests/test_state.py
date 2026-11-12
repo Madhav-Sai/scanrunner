@@ -18,6 +18,15 @@ spec.loader.exec_module(sr)
 
 
 class DurableEvidenceTests(unittest.TestCase):
+    def test_netexec_capacity_tracks_selected_targets_within_broad_authorization(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = {"tool": "nxc", "scope": ["10.0.0.0/8"], "targets": ["10.0.0.1"], "subnet_workers": 1}
+            first = sr.RunStore(tmp, config)
+            job = first.claim("smb:10.0.0.1")
+            self.assertIsNotNone(job)
+            second = sr.RunStore(tmp, {**config, "targets": ["10.0.0.2"]})
+            with self.assertRaises(sr.CapacityBusy):
+                second.claim("smb:10.0.0.2")
     def test_contending_writer_waits_without_reading_a_locked_byte(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = str(Path(tmp) / "inventory")

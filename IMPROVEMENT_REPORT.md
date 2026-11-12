@@ -1,5 +1,13 @@
 # ScanRunner improvement and integration report
 
+## NetExec completion and authorization follow-up
+
+The follow-up requires complete per-address/per-query evidence on the selected protocol and port. Partial CIDR coverage returns exit 1 and preserves a hashed `coverage.json`. Recorded and recomputed coverage must agree before completion is accepted. Nmap callers also receive the completion gate's final decision, and impossible XML host totals are refused.
+
+Every CLI SMB invocation now requires explicit authentication authorization. The upstream host-enumeration path performs a null-login probe and can probe Guest. The same source documents SMB signing interpretation issues that make a pinned tool-version/lab matrix necessary for field confidence. See [the NetExec SMB implementation](https://github.com/Pennyw0rth/NetExec/blob/main/nxc/protocols/smb.py).
+
+Additional guards distinguish explicit authentication rejection from access denial, suppress OS claims from generic status messages, recognize hash credentials, preserve pinned DNS answers, validate query/protocol compatibility, and redact recognized credentials in authorization notes. SMB signing is labeled as a requirement. Parser revision 3 prevents reuse of earlier completion decisions. Local results and source hashes are recorded in `audit-metrics-nxc-coverage.json` and `audit-safety-nxc-coverage.json`. Cross-platform acceptance is pending the follow-up CI run.
+
 ## Assessment workflow implemented in 1.4.0
 
 The normalized inventory, engagement scope records, safe import, analyst finding decisions, evidence-bound final exports, comparable retests and labeled-data benchmark are implemented. `audit-metrics-assessment.json` records 164 passing tests and one gated localhost-Nmap integration skip. `audit-safety-assessment.json` records all 26 targeted guards passing. Cross-platform acceptance is pending the new CI run.

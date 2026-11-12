@@ -654,13 +654,13 @@ the complete output plus terminal, CSV, and JSON tables.
 
 ```bash
 # General SMB inventory table; any normal NXC options are passed through.
-python3 scanrunner.py -f targets.txt -nxc smb --timeout 5
+python3 scanrunner.py -f targets.txt -nxc smb --allow-intrusive --authorization-note AUTH_REF --timeout 5
 
 # Display only the SMB facts needed for a hardening review.
-python3 scanrunner.py -f targets.txt -nxc smb --nxc-query os,hostname,smbv1,smb-signing
+python3 scanrunner.py -f targets.txt -nxc smb --allow-intrusive --authorization-note AUTH_REF --nxc-query os,hostname,smbv1,smb-signing
 
 # Test whether anonymous SMB authentication succeeds. Empty credentials are added automatically.
-python3 scanrunner.py -f targets.txt -nxc smb --nxc-query null-auth
+python3 scanrunner.py -f targets.txt -nxc smb --allow-intrusive --authorization-note AUTH_REF --nxc-query null-auth
 
 # Show only RDP Network Level Authentication status.
 python3 scanrunner.py -f targets.txt -nxc rdp --nxc-query rdp-nla
@@ -1034,3 +1034,32 @@ recall includes positive abstentions, and reports include per-check denominators
 coverage and Wilson intervals. Field accuracy is pending a representative labeled
 dataset. End-to-end scanner performance additionally requires executing the pinned
 scanner against the authorized lab and independently checking its ground truth.
+
+## NetExec authorization and assessment coverage
+
+Every `-nxc smb` invocation requires `--allow-intrusive --authorization-note AUTH_REF`.
+Replace `AUTH_REF` with the actual authorization reference. NetExec SMB host
+enumeration performs a null-login probe and can probe Guest, including when no
+credentials were supplied. The preview describes those effects. The underlying
+behavior is visible in [NetExec SMB enumeration](https://github.com/Pennyw0rth/NetExec/blob/main/nxc/protocols/smb.py).
+
+Completion requires evidence for each requested address and focused field on the
+selected protocol/port. Sparse CIDR results and unresolved requested facts retain
+`PARTIAL` or `INCONCLUSIVE` coverage. The CLI exits 1 for incomplete coverage while
+preserving the raw evidence and CSV/JSON facts. `coverage.json` in each job directory
+records per-target outcomes, requested queries and port. Capacity reservations use
+the selected targets within an engagement's authorization scope.
+
+SMB signing is labeled as a signing requirement. An explicit blank-login
+`STATUS_LOGON_FAILURE` is recorded as `Rejected`. Access denial remains
+`Inconclusive`. Hash credentials prevent anonymous-credential injection, and generic
+progress messages leave the OS field unknown. SMB `all` queries require the same
+authorization and request an explicit blank login only when credentials are absent.
+RDP `all` queries cover OS, hostname and NLA fields. Unsupported protocol/query
+combinations fail before scanner execution. `--port` accepts an integer from 1 to
+65535, and completion evidence must match the selected endpoint.
+
+Evidence parser revision 3 invalidates earlier completion fingerprints. Version
+compatibility remains important because the upstream SMB implementation documents
+earlier SMB 3.1.1 signing interpretation pitfalls. Independent lab measurements must
+pin the scanner version and verify the actual server policy.

@@ -45,7 +45,7 @@ from urllib.parse import urlsplit
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 
 __version__ = "1.4.0"
-EVIDENCE_PARSER_VERSION = "2"
+EVIDENCE_PARSER_VERSION = "3"
 
 # When an interactive run has at least this many pending targets, offer to
 # split the work across separate terminal tabs (see offer_terminal_tabs()).
@@ -96,7 +96,7 @@ Usage:
 Start here:
   scanrunner -f targets.txt -sV               Run Nmap with raw arguments
   scanrunner -i 10.10.10.10 --template quick  Run an Nmap template
-  scanrunner -f targets.txt -nxc smb           Run NetExec SMB mode
+  scanrunner -f targets.txt -nxc smb --allow-intrusive --authorization-note AUTH_REF
   scanrunner -f targets.txt --split 3          Split a target file
 
 Review results (no scanning):
@@ -735,6 +735,8 @@ class RunStore:
     def public_config(self):
         config = dict(self.config)
         config["options"] = redact_command(["nxc", *config.get("options", [])])[1:] if config.get("tool") == "nxc" else config.get("options", [])
+        if config.get("authorization_note"):
+            config["authorization_note"] = redact_output_text(config["authorization_note"])
         return config
 
     def fingerprint(self, target, use_pn=False):
@@ -752,7 +754,7 @@ class RunStore:
         except ValueError:
             claim_target = target.lower().rstrip(".")
         subnets = set()
-        subjects = self.config.get("scope", []) if self.config.get("tool") == "nxc" else [target]
+        subjects = self.config.get("targets", self.config.get("scope", [])) if self.config.get("tool") == "nxc" else [target]
         for subject in subjects:
             resolved = self.config.get("dns_answers", {}).get(subject, [subject])
             for address in resolved:
@@ -814,7 +816,7 @@ class RunStore:
             if tool == "nmap":
                 required.update({"nmap.txt", "nmap.xml"})
             elif tool == "nxc":
-                required.add("targets.txt")
+                required.update({"targets.txt", "coverage.json"})
             if (exit_code != 0 or not parser_ok or
                     not all(os.path.isfile(os.path.join(job["directory"], name)) for name in required)):
                 outcome, parser_ok = "INCONCLUSIVE", False
@@ -828,9 +830,28 @@ class RunStore:
                     captured = file.read().decode("utf-8", errors="replace")
                 with open(os.path.join(job["directory"], "targets.txt"), encoding="utf-8") as file:
                     subjects = [line.strip() for line in file if line.strip()]
-                evidence_rows = parse_nxc_output(captured, subjects,
-                                                expected_protocol=command[1] if len(command) > 1 else None)
-                if not subjects or not any(item["port"] for item in evidence_rows):
+                protocol = command[1] if len(command) > 1 else self.config.get("protocol", "")
+                evidence_rows = parse_nxc_output(captured, subjects, expected_protocol=protocol,
+                                                null_auth_attempt=uses_anonymous_nxc_credentials(self.config.get("options", [])))
+                declared = self.config.get("targets", subjects)
+                coverage = nxc_target_outcomes(evidence_rows, declared, self.config.get("nxc_queries", []), protocol,
+                                               self.config.get("dns_answers", {}), nxc_expected_port(self.config.get("options", []), protocol))
+                try:
+                    with open(os.path.join(job["directory"], "coverage.json"), encoding="utf-8") as file:
+                        recorded_coverage = json.load(file)
+                except (OSError, ValueError):
+                    recorded_coverage = {}
+                if not isinstance(recorded_coverage, dict):
+                    recorded_coverage = {}
+                authorized_subjects = [*declared, *[address for values in self.config.get("dns_answers", {}).values() for address in values]]
+                subjects_allowed = all((_is_ip_literal(subject) or "/" in subject or parse_last_octet_range(subject))
+                                       and target_in_scope(subject, authorized_subjects) for subject in subjects)
+                if (not subjects or not coverage or not all(value == "COMPLETE" for value in coverage.values())
+                        or not subjects_allowed
+                        or recorded_coverage.get("targets") != coverage
+                        or recorded_coverage.get("queries") != self.config.get("nxc_queries", [])
+                        or recorded_coverage.get("port") != nxc_expected_port(self.config.get("options", []), protocol)
+                        or recorded_coverage.get("protocol") != protocol):
                     outcome, parser_ok = "INCONCLUSIVE", False
         artifacts = []
         for name in sorted(os.listdir(job["directory"])):
@@ -853,6 +874,7 @@ class RunStore:
                              (utc_now(), outcome, exit_code, int(parser_ok), json.dumps(manifest), job["id"]))
             database.execute("DELETE FROM claims WHERE job_id=?", (job["id"],))
             database.execute("INSERT INTO job_events VALUES (?, ?, 'Running', ?)", (job["id"], utc_now(), outcome))
+        return outcome, parser_ok
 
     def verify_job(self, row):
         try:
@@ -865,6 +887,8 @@ class RunStore:
                 required.update({"nmap.txt", "nmap.xml"})
             elif required and manifest.get("config", {}).get("tool") == "nxc":
                 required.add("targets.txt")
+                if manifest.get("evidence_parser_version") == EVIDENCE_PARSER_VERSION:
+                    required.add("coverage.json")
             if not required <= {item["name"] for item in manifest["artifacts"]}:
                 return False
             manifest_path = os.path.join(row["directory"], "manifest.json")
@@ -1093,11 +1117,16 @@ def validate_nmap_evidence(report, target, returncode):
             return "INCOMPLETE", False
         if root.find("runstats/finished").get("exit") != "success":
             return "INCOMPLETE", False
-        if int(root.find("runstats/hosts").get("total", "0")) == 0:
+        total_count = int(root.find("runstats/hosts").get("total", "0"))
+        if total_count == 0:
             return "UNRESOLVED", False
         if any(host.get("timedout") == "true" for host in root.findall("host")):
             return "TIMEOUT", False
         up_count = int(root.find("runstats/hosts").get("up", "0"))
+        down_value = root.find("runstats/hosts").get("down")
+        if (not 0 <= up_count <= total_count or len(root.findall("host")) > total_count or
+                down_value is not None and (int(down_value) < 0 or up_count + int(down_value) != total_count)):
+            return "INCONCLUSIVE", False
         observed_up = sum(host.find("status") is not None and host.find("status").get("state") == "up"
                           for host in root.findall("host"))
         if up_count != observed_up or (status == "COMPLETE" and up_count < 1) or (status == "DOWN" and up_count != 0):
@@ -1178,7 +1207,7 @@ def execute_nmap(target, report, options, use_pn=False, live=False):
     except (OSError, ValueError, sqlite3.Error) as error:
         status, parsed, detail = "FAILED", False, str(error)
     finally:
-        store.finish_job(job, status, code, parsed, command)
+        status, parsed = store.finish_job(job, status, code, parsed, command)
     return status, detail
 
 
@@ -1218,6 +1247,8 @@ def validate_scan_options(options, nxc=False, allow_intrusive=False):
                 raise ValueError(f"Missing or invalid value for {option}")
             if nxc and option in {"-u", "--username", "-p", "--password", "-H", "--hash"} and not allow_intrusive:
                 raise ValueError("Credential operations require --allow-intrusive and --authorization-note")
+            if nxc and option == "--port" and (not value.isdigit() or not 1 <= int(value) <= 65535):
+                raise ValueError("NetExec port must be between 1 and 65535")
         elif token in flags or (not nxc and re.fullmatch(r"-(?:v+|d+|T[0-5]|p[0-9,U:T,-]+)", token)):
             pass
         else:
@@ -1245,16 +1276,18 @@ Usage:
   scanrunner -i 10.10.10.10 -nxc <protocol> [NXC options]
 
 Examples:
-  scanrunner -f targets.txt -nxc smb --nxc-query os,hostname,smbv1
-  scanrunner -f targets.txt -nxc smb --nxc-query null-auth
+  scanrunner -f targets.txt -nxc smb --allow-intrusive --authorization-note AUTH_REF --nxc-query os,hostname,smbv1
+  scanrunner -f targets.txt -nxc smb --allow-intrusive --authorization-note AUTH_REF --nxc-query null-auth
   scanrunner -f targets.txt -nxc rdp --nxc-query rdp-nla
 
 scanrunner passes all remaining options to NetExec and saves raw output, CSV,
 and JSON tables. For protocol-specific NetExec options, run: nxc <protocol> --help
 Default table columns: IP, HOSTNAME, OS. Add --nxc-query to add fields —
-SMBv1 enabled, signing disabled, RDP without NLA, and successful null auth
+SMBv1 enabled, signing not required, RDP without NLA, and successful null auth
 are highlighted as unverified observations requiring analyst review.
 Focused table fields: os, hostname, smbv1, smb-signing, null-auth, rdp-nla, all.
+Every SMB invocation requires --allow-intrusive and --authorization-note because
+NetExec host enumeration can attempt null and Guest logons without supplied credentials.
 
 CIDR targets are listed per responding host. Hostname targets are matched to
 their resolved IP, so each host appears once.
@@ -1850,7 +1883,7 @@ def parse_args():
         nmap_extra.extend(["--excludefile", args.exclude_file])
     args.nmap_extra = nmap_extra   # list of strings, used directly in _build_nmap_command
     args.nmap_args  = " ".join(nmap_extra)   # human-readable display only
-    if args.allow_intrusive and not args.authorization_note:
+    if args.allow_intrusive and (not args.authorization_note or not args.authorization_note.strip()):
         parser.error("--allow-intrusive requires --authorization-note")
     if args.json and not args.dry_run:
         parser.error("--json is supported with --dry-run and review commands")
@@ -2015,7 +2048,7 @@ def _is_ip_literal(value):
 
 
 def parse_nxc_output(output, targets, null_auth_attempt=False, resolver=None, expected_protocol=None,
-                     allowed_addresses=None):
+                     allowed_addresses=None, dns_answers=None):
     """Extract host facts from NetExec's human-readable protocol output.
 
     Every IP or hostname target gets a row, so hosts that never answered still
@@ -2030,7 +2063,10 @@ def parse_nxc_output(output, targets, null_auth_attempt=False, resolver=None, ex
     resolved_targets = {}
     for target in seeded:
         if not _is_ip_literal(target):
-            resolved_targets[target], _ = (resolver or resolve_scan_target)(target, timeout=3)
+            if dns_answers is not None:
+                resolved_targets[target] = next(iter(dns_answers.get(target, [])), target)
+            else:
+                resolved_targets[target], _ = (resolver or resolve_scan_target)(target, timeout=3)
     permitted = list(allowed_addresses if allowed_addresses is not None else
                      [*targets, *resolved_targets.values()])
     endpoints = {}
@@ -2067,7 +2103,7 @@ def parse_nxc_output(output, targets, null_auth_attempt=False, resolver=None, ex
         if operating_system.startswith("[*] "):
             operating_system = operating_system[4:]
         operating_system = operating_system.strip()
-        if operating_system and not operating_system.startswith(("[+]", "[-]", "[!]") ):
+        if name and operating_system and not operating_system.startswith(("[+]", "[-]", "[!]") ):
             row["os"] = operating_system
         for field, pattern in (
             ("smbv1", r"SMBv1:(True|False|None)"),
@@ -2086,12 +2122,14 @@ def parse_nxc_output(output, targets, null_auth_attempt=False, resolver=None, ex
                 re.fullmatch(r"\[\+\]\s+(?:[^\s\\:]+\\)?:\s*", details)):
             auth_results.setdefault(key, set()).add("Success")
         if (null_auth_attempt and protocol == "SMB" and
-                re.match(r"\[-\]\s+(?:[^\s\\:]+\\)?:\s+STATUS_(?:LOGON_FAILURE|ACCESS_DENIED)\b", details)):
+                re.match(r"\[-\]\s+(?:[^\s\\:]+\\)?:\s+STATUS_LOGON_FAILURE\b", details)):
             auth_results.setdefault(key, set()).add("Rejected")
+        if (null_auth_attempt and protocol == "SMB" and
+                re.match(r"\[-\]\s+(?:[^\s\\:]+\\)?:\s+STATUS_ACCESS_DENIED\b", details)):
+            auth_results.setdefault(key, set()).add("Inconclusive")
         if key in auth_results:
             results = auth_results[key]
-            row["null_auth"] = "Inconclusive" if len(results) > 1 else (
-                "Success" if "Success" in results else "")
+            row["null_auth"] = next(iter(results)) if len(results) == 1 else "Inconclusive"
 
     # Fold hostname targets into the row of the IP they resolve to.
     for target in seeded:
@@ -2114,7 +2152,7 @@ def nxc_table_columns(protocol, queries):
     columns = [("target", "IP")]
     fields = {
         "os": ("os", "OS"), "hostname": ("hostname", "HOSTNAME"),
-        "smbv1": ("smbv1", "SMBv1"), "smb-signing": ("smb_signing", "SMB Signing"),
+        "smbv1": ("smbv1", "SMBv1"), "smb-signing": ("smb_signing", "SMB Signing Required"),
         "null-auth": ("null_auth", "Null Auth"), "rdp-nla": ("rdp_nla", "RDP NLA"),
     }
     for query in queries:
@@ -2203,6 +2241,8 @@ def print_nxc_table(rows, columns, protocol=None):
 
 def uses_anonymous_nxc_credentials(options):
     """Return whether NXC was explicitly invoked with empty user and password values."""
+    if any(option in {"-H", "--hash"} or option.startswith("--hash=") for option in options):
+        return False
     values = {}
     for index, option in enumerate(options[:-1]):
         if option in {"-u", "--username"}:
@@ -2215,6 +2255,69 @@ def uses_anonymous_nxc_credentials(options):
         elif option.startswith("--password="):
             values["password"] = option.split("=", 1)[1]
     return values.get("username") == "" and values.get("password") == ""
+
+
+def validate_nxc_queries(protocol, queries):
+    supported = {"smb": NXC_QUERY_CHOICES - {"rdp-nla"},
+                 "rdp": {"os", "hostname", "rdp-nla", "all"}}
+    if set(queries) - supported.get(protocol.lower(), {"os", "hostname"}):
+        raise ValueError(f"Requested focused queries are unsupported for NetExec {protocol}")
+
+
+def effective_nxc_options(options, queries, protocol="smb"):
+    effective = list(options)
+    supplied = any(token in {"-u", "--username", "-p", "--password", "-H", "--hash"} or
+                   token.startswith(("--username=", "--password=", "--hash=")) for token in effective)
+    anonymous = "null-auth" in queries or "all" in queries and protocol.lower() == "smb"
+    if anonymous and not supplied:
+        effective.extend(["-u", "", "-p", ""])
+    return effective
+
+
+def nxc_expected_port(options, protocol):
+    for index, option in enumerate(options):
+        if option == "--port":
+            return int(options[index + 1])
+        if option.startswith("--port="):
+            return int(option.split("=", 1)[1])
+    return {"smb": 445, "rdp": 3389}.get(protocol.lower())
+
+
+def nxc_target_outcomes(rows, targets, queries, protocol, dns_answers=None, expected_port=None):
+    """Account for requested addresses and requested facts without inventing negatives."""
+    fields = [field for field, _ in nxc_table_columns(protocol, queries) if field != "target"]
+    if "all" in queries and protocol.lower() in {"smb", "rdp"}:
+        irrelevant = {"rdp_nla"} if protocol.lower() == "smb" else {"smbv1", "smb_signing", "null_auth"}
+        fields = [field for field in fields if field not in irrelevant]
+    valid = {"smbv1": {"True", "False"}, "smb_signing": {"True", "False"},
+             "rdp_nla": {"True", "False"}, "null_auth": {"Success", "Rejected"}}
+    expected_port = expected_port if expected_port is not None else nxc_expected_port([], protocol)
+    complete_addresses = {row["target"] for row in rows if row.get("port") and row.get("protocol") == protocol.lower()
+                          and (expected_port is None or str(row["port"]) == str(expected_port)) and all(
+        row.get(field) in valid[field] if field in valid else row.get(field) not in {None, "", "None", "Inconclusive", "Not determined"}
+        for field in fields)}
+    outcomes = {}
+    for target in targets:
+        destinations = (dns_answers or {}).get(target, [target])
+        expected = 0
+        for destination in destinations:
+            try:
+                expected += ipaddress.ip_network(destination, strict=False).num_addresses
+            except ValueError:
+                interval = parse_last_octet_range(destination)
+                if interval:
+                    expected += int(interval[1]) - int(interval[0]) + 1
+                else:
+                    expected = None
+                    break
+        completed = {address for address in complete_addresses if target_in_scope(address, destinations)}
+        if expected and len(completed) == expected:
+            outcomes[target] = "COMPLETE"
+        elif completed:
+            outcomes[target] = "PARTIAL"
+        else:
+            outcomes[target] = "INCONCLUSIVE"
+    return outcomes
 
 
 def run_nxc(binary, protocol, target_source, targets, nxc_extra, queries, output_dir):
@@ -2234,26 +2337,24 @@ def _run_nxc_command(binary, protocol, target_source, targets, nxc_extra, querie
         print(c(C.YELLOW,
                 "  [!] Focused queries are currently parsed only from SMB/RDP output."))
 
-    effective_extra = list(nxc_extra)
-    credential_supplied = any(
-        token in {"-u", "--username", "-p", "--password"}
-        or token.startswith(("--username=", "--password="))
-        for token in effective_extra)
-    if "null-auth" in queries and not credential_supplied:
-        effective_extra.extend(["-u", "", "-p", ""])
+    validate_nxc_queries(protocol, queries)
+    effective_extra = effective_nxc_options(nxc_extra, queries, protocol)
 
     command = [binary, protocol, target_source, *effective_extra]
     print(c(C.DIM, "  Command : " + " ".join(redact_command(command))))
     print(c(C.DIM, "─" * 70))
 
-    store = ACTIVE_STORE or RunStore(output_dir, {'tool': 'nxc', 'options': effective_extra})
-    job = store.wait_claim(protocol + ':' + ','.join(targets))
+    store = ACTIVE_STORE or RunStore(output_dir, {'tool': 'nxc', 'options': effective_extra,
+                                                 'protocol': protocol, 'nxc_queries': queries, 'targets': targets})
+    job = store.wait_claim(protocol + ':' + ','.join(sorted(set(target.lower().rstrip('.') for target in targets))))
     if job is None:
         print('NetExec target set is already claimed')
+        store.end("Target set already claimed")
         return False
     command = []
     code, process_state, output = None, 'Interrupted', ''
     rows, parsed, outcome = [], False, 'Interrupted'
+    target_outcomes = {target: 'Interrupted' for target in targets}
     try:
         source_path = os.path.join(job['directory'], 'targets.txt')
         if os.path.isfile(target_source):
@@ -2271,12 +2372,31 @@ def _run_nxc_command(binary, protocol, target_source, targets, nxc_extra, querie
             allowed = [line.strip() for line in file if line.strip()] if ACTIVE_SCOPE is not None else None
         rows = parse_nxc_output(
             output, targets, null_auth_attempt=uses_anonymous_nxc_credentials(effective_extra),
-            expected_protocol=protocol, allowed_addresses=allowed)
+            expected_protocol=protocol, allowed_addresses=allowed, dns_answers=store.config.get('dns_answers'))
         parsed = any(row['port'] for row in rows)
-        outcome = ('COMPLETE' if parsed else ('EMPTY' if not output.strip() else 'INCONCLUSIVE')) if (
-            code == 0 and process_state == 'Exited') else ('FAILED' if process_state == 'Exited' else process_state)
+        target_outcomes = nxc_target_outcomes(rows, targets, queries, protocol, store.config.get('dns_answers', {}),
+                                               nxc_expected_port(effective_extra, protocol))
+        if code != 0 or process_state != 'Exited':
+            outcome = 'FAILED' if process_state == 'Exited' else process_state
+            target_outcomes = {target: outcome for target in targets}
+        elif target_outcomes and all(value == 'COMPLETE' for value in target_outcomes.values()):
+            outcome = 'COMPLETE'
+        elif any(value in {'COMPLETE', 'PARTIAL'} for value in target_outcomes.values()):
+            outcome = 'PARTIAL'
+        else:
+            outcome = 'EMPTY' if not output.strip() else 'INCONCLUSIVE'
+        with open(os.path.join(job['directory'], 'coverage.json'), 'x', encoding='utf-8') as file:
+            json.dump({'targets': target_outcomes, 'queries': queries, 'protocol': protocol,
+                       'port': nxc_expected_port(effective_extra, protocol)}, file, indent=2)
+    except Exception:
+        outcome = 'FAILED'
+        target_outcomes = {target: outcome for target in targets}
+        raise
     finally:
-        store.finish_job(job, outcome, code, parsed and outcome == 'COMPLETE', command)
+        finalized, parsed = store.finish_job(job, outcome, code, parsed, command)
+        if finalized != outcome:
+            target_outcomes = {target: finalized for target in targets}
+        outcome = finalized
     timestamp = datetime.now().strftime('%Y%m%d-%H%M%S-%f')
     raw_path = os.path.join(job['directory'], 'stdout.bin')
     rows = [{field: redact_output_text(str(value)) for field, value in row.items()} for row in rows]
@@ -2297,11 +2417,12 @@ def _run_nxc_command(binary, protocol, target_source, targets, nxc_extra, querie
     print(c(C.GREEN, f"  [+] Saved table data: {csv_path}, {json_path}"))
     if code != 0:
         print(c(C.RED, f"  [!] NetExec exited with status {code}. See raw output above."))
+    elif outcome != 'COMPLETE':
+        print(c(C.YELLOW, f"  [!] Assessment coverage is {outcome}; review coverage.json in the evidence directory."))
     with store.connect() as database:
         for target in targets:
             database.execute("UPDATE run_targets SET outcome=? WHERE run_id=? AND requested=?",
-                             (outcome if any(row['target'] == target and row['port'] for row in rows)
-                              or is_network_target(target) or parse_last_octet_range(target) else 'INCONCLUSIVE',
+                             (target_outcomes[target],
                               store.run_id, target))
     store.end("Finished; review individual NetExec outcomes")
     return outcome == 'COMPLETE'
@@ -3527,11 +3648,13 @@ def preview_scan(args, targets, scope, exclusions):
                "side_effects": "Execution sends network probes and writes raw evidence and reports",
                "output_directory": os.path.abspath(args.output), "scope": scope if scope is not None else targets,
                "exclusions": exclusions, "commands": commands,
-               "dns": "Deferred until execution", "authorization": args.authorization_note or "Explicit target selection"}
+               "dns": "Deferred until execution", "authorization": redact_output_text(args.authorization_note or "Explicit target selection")}
     preview["traffic_limits"] = {"aggregate_nmap_pps": args.scan_rate,
                                  "global_workers": args.global_concurrency, "per_subnet_workers": args.subnet_concurrency,
                                  "rate_scope": "Nmap host discovery and port scans. OS, version and NSE traffic is outside this ceiling.",
                                  "applicable": not bool(args.nxc)}
+    if args.nxc == "smb":
+        preview["side_effects"] += ". NetExec SMB enumeration can attempt null and Guest logons without supplied credentials"
     print(json.dumps(preview, indent=2))
 
 
@@ -3611,9 +3734,13 @@ def main():
                         raise ValueError(f"Per-process rate must be between 0 and {ceiling} PPS")
             if not has_nmap_option(args.nmap_extra, "--max-rate"):
                 args.nmap_extra.extend(["--max-rate", str(ceiling)])
-        if "null-auth" in args.nxc_queries or "all" in args.nxc_queries:
+        if args.nxc:
+            validate_nxc_queries(args.nxc, args.nxc_queries)
+        if args.nxc == "smb" or "null-auth" in args.nxc_queries:
             if not args.allow_intrusive:
-                raise ValueError("Anonymous authentication requires explicit authorization and --allow-intrusive")
+                raise ValueError("NetExec SMB can attempt null and Guest logons; require --allow-intrusive and --authorization-note")
+        if args.nxc:
+            args.nmap_extra = effective_nxc_options(args.nmap_extra, args.nxc_queries, args.nxc)
         if args.dry_run:
             preview_scan(args, requested, explicit_scope, exclusions)
             return

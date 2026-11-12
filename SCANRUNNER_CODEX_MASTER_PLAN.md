@@ -1,5 +1,7 @@
 # ScanRunner — Codex Master Development Plan and TODO
 
+> NetExec completion follow-up: per-address/per-query/port coverage, partial CIDR outcomes, default SMB authentication authorization, pinned DNS reuse, hash-credential handling and central completion feedback are implemented. See audit-metrics-nxc-coverage.json and IMPROVEMENT_REPORT.md. P0-06 acceptance awaits the follow-up CI run, and field validation remains pending the labeled dataset and live-tool approval.
+
 > Version 1.4 local milestone: normalized evidence, analyst decisions, guarded final exports, comparable retests and the labeled-data benchmark are implemented. Local verification is 164 passes, one gated live-Nmap skip and 26/26 targeted guards passing. Cross-platform CI and external accuracy validation remain pending. See IMPROVEMENT_REPORT.md. Acceptance checkboxes await the corresponding full criteria.
 
 > Profile follow-up closes DA-10 with documented compatibility changes, authorization-aware profile probes, CLI coverage and completion consistency. Current results are 134 regression passes, one gated skip and 26/26 targeted guards passing. See IMPROVEMENT_REPORT.md. No additional roadmap acceptance checkbox is closed by this increment.

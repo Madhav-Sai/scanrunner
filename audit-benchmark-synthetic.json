@@ -79,7 +79,7 @@
   ],
   "rule_version": "1",
   "implementation_sha256": {
-    "scanrunner.py": "d877d527c8079ecba31df5fd48921ddafd46be96d1e06e8341d79a62549b2476",
+    "scanrunner.py": "ea5f185de9956f57154003fe6787e3af156e07166a0bbe2e2f3c5c6e2dd4e92f",
     "scanrunner_assessment.py": "d7c2c0a48be184615745723a93a15b479e6d218ecb9f2526c141576e516fb113",
     "scanrunner_findings.py": "5b8d273694e7a62baade485881dd9313be6439857a42b37e55ee979fb86b4a15",
     "scanrunner_benchmark.py": "911c264b124b2fe86cda858c2269fb7583d2f5c0be8eeb5311ef25e364937375"

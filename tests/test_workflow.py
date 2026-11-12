@@ -931,8 +931,10 @@ class NxcEndToEndTests(EndToEndBase):
         self.assertIn("Unreviewed scanner argument", self.last_output)
         self.assertFalse(nxc_log.exists())
         result = self.run_scan("-f", self.targets("10.0.0.0/24"), "-nxc", "smb",
+                               "--allow-intrusive", "--authorization-note", "Synthetic fixture authorization",
                                "--nxc-query", "smbv1,smb-signing")
-        self.assertEqual(result.returncode, 0, self.last_output)
+        self.assertEqual(result.returncode, 1, self.last_output)
+        self.assertIn("coverage is PARTIAL", self.last_output)
         csv_file = next(self.out.glob("nxc-smb-*.csv"))
         lines = csv_file.read_text().splitlines()
         self.assertEqual(lines[0], "target,smbv1,smb_signing")
