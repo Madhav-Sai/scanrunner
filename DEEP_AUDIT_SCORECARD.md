@@ -1,6 +1,6 @@
 # ScanRunner deep audit scorecard
 
-> Completion follow-up: 174 regression passes, one gated live-Nmap skip and 26/26 targeted guards passing locally. New NetExec coverage, protocol/port, default-authentication and upstream-semantics guards are detailed in IMPROVEMENT_REPORT.md. Cross-platform validation for this follow-up is pending.
+> Completion follow-up: 175 regression passes, one gated live-Nmap skip and 26/26 targeted guards passing locally. New NetExec coverage, protocol/port, default-authentication and upstream-semantics guards are detailed in IMPROVEMENT_REPORT.md. CI run 43245521164 passed all six jobs for 43c3e62. The subsequent export-failure persistence guard awaits its own matrix run.
 
 > Version 1.4 assessment increment: 164 regression passes, one gated live-Nmap skip and 26/26 targeted guards passing locally. The new analyst/retest workflow and synthetic benchmark are documented in IMPROVEMENT_REPORT.md. Real-world accuracy requires the pending labeled dataset. Source hashes and individual results are in audit-metrics-assessment.json, audit-safety-assessment.json and audit-benchmark-synthetic.json.
 

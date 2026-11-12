@@ -108,6 +108,22 @@ class EvidenceGuards(unittest.TestCase):
                 self.assertEqual(coverage["targets"]["192.0.2.1"], "COMPLETE")
                 if expected == "PARTIAL":
                     self.assertEqual(coverage["targets"]["192.0.2.2"], "INCONCLUSIVE")
+
+    def test_netexec_target_evidence_status_survives_derived_export_failure(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            store = sr.RunStore(temporary, {"tool": "nxc", "targets": ["192.0.2.1"], "nxc_queries": ["smb-signing"], "protocol": "smb"})
+            def capture(command, directory, timeout, live):
+                (Path(directory) / "stdout.bin").write_bytes(b"SMB 192.0.2.1 445 HOST [*] (signing:False)\n")
+                (Path(directory) / "stderr.bin").write_bytes(b"")
+                return 0, "Exited"
+            with mock.patch.object(sr, "ACTIVE_STORE", store), mock.patch.object(sr, "ACTIVE_SCOPE", None), \
+                    mock.patch.object(sr, "capture_process", side_effect=capture), mock.patch.object(sr, "atomic_text", side_effect=OSError("Synthetic export failure")), \
+                    self.assertRaises(OSError):
+                sr.run_nxc("fixture-nxc", "smb", "192.0.2.1", ["192.0.2.1"], [], ["smb-signing"], temporary)
+            with store.connect() as database:
+                self.assertEqual(database.execute("SELECT outcome FROM run_targets").fetchone()[0], "COMPLETE")
+                self.assertEqual(database.execute("SELECT outcome FROM jobs").fetchone()[0], "COMPLETE")
+            store.end("Synthetic export failure recorded")
     def test_all_advertised_profiles_preview_through_cli(self):
         installer_spec = importlib.util.spec_from_file_location("guard_installer", Path(sr.__file__).with_name("install.py"))
         installer = importlib.util.module_from_spec(installer_spec)

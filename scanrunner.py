@@ -2397,6 +2397,10 @@ def _run_nxc_command(binary, protocol, target_source, targets, nxc_extra, querie
         if finalized != outcome:
             target_outcomes = {target: finalized for target in targets}
         outcome = finalized
+        with store.connect() as database:
+            for target in targets:
+                database.execute("UPDATE run_targets SET outcome=? WHERE run_id=? AND requested=?",
+                                 (target_outcomes[target], store.run_id, target))
     timestamp = datetime.now().strftime('%Y%m%d-%H%M%S-%f')
     raw_path = os.path.join(job['directory'], 'stdout.bin')
     rows = [{field: redact_output_text(str(value)) for field, value in row.items()} for row in rows]
@@ -2419,11 +2423,6 @@ def _run_nxc_command(binary, protocol, target_source, targets, nxc_extra, querie
         print(c(C.RED, f"  [!] NetExec exited with status {code}. See raw output above."))
     elif outcome != 'COMPLETE':
         print(c(C.YELLOW, f"  [!] Assessment coverage is {outcome}; review coverage.json in the evidence directory."))
-    with store.connect() as database:
-        for target in targets:
-            database.execute("UPDATE run_targets SET outcome=? WHERE run_id=? AND requested=?",
-                             (target_outcomes[target],
-                              store.run_id, target))
     store.end("Finished; review individual NetExec outcomes")
     return outcome == 'COMPLETE'
 

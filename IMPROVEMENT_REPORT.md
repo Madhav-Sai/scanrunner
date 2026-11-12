@@ -2,6 +2,8 @@
 
 ## NetExec completion and authorization follow-up
 
+CI run 43245521164 passed all six jobs at 43c3e62. A subsequent guard persists per-target evidence outcomes before derived CSV/JSON export, keeping execution facts available after export failure. Local verification now records 175 passes and one gated live-Nmap skip. The final persistence change requires its own matrix run.
+
 The follow-up requires complete per-address/per-query evidence on the selected protocol and port. Partial CIDR coverage returns exit 1 and preserves a hashed `coverage.json`. Recorded and recomputed coverage must agree before completion is accepted. Nmap callers also receive the completion gate's final decision, and impossible XML host totals are refused.
 
 Every CLI SMB invocation now requires explicit authentication authorization. The upstream host-enumeration path performs a null-login probe and can probe Guest. The same source documents SMB signing interpretation issues that make a pinned tool-version/lab matrix necessary for field confidence. See [the NetExec SMB implementation](https://github.com/Pennyw0rth/NetExec/blob/main/nxc/protocols/smb.py).
