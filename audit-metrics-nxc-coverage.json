@@ -11,12 +11,12 @@
     }
   ],
   "expected_failures": 0,
-  "elapsed_seconds": 31.813,
+  "elapsed_seconds": 33.594,
   "failure_details": [],
   "source_sha256": {
     "scanrunner.py": "56764d02f300e0eccdb6de0668a52550992ac2a13e4cc6838ba9639eccb3ef96",
     "scanrunner_assessment.py": "d7c2c0a48be184615745723a93a15b479e6d218ecb9f2526c141576e516fb113",
-    "scanrunner_findings.py": "5b8d273694e7a62baade485881dd9313be6439857a42b37e55ee979fb86b4a15",
+    "scanrunner_findings.py": "11a9ab6cb3bbc7ca39fdaa99e8ffbdb06905ebc7ff16827d754db6be16a9d2c2",
     "scanrunner_benchmark.py": "911c264b124b2fe86cda858c2269fb7583d2f5c0be8eeb5311ef25e364937375",
     "install.py": "97d8eadd16b0215a50b226fe4df11e79f83f0ecddce6a77337e5343ebb3ec737"
   }

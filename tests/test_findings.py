@@ -148,6 +148,8 @@ class FindingWorkflowTests(unittest.TestCase):
         _, observation = self.imported()
         finding = self.command("findings", "create", "--observation", observation["id"])
         self.assertEqual(finding["status"], "Needs Verification")
+        self.assertEqual(finding["observed_at"], "2023-11-14T22:13:20+00:00")
+        self.assertEqual(finding["tool_version"], "7.95")
         base = ["findings", "review", "--finding", finding["id"], "--status", "Confirmed", "--reviewer", "Synthetic Analyst", "--rationale", "Reviewed"]
         for extra in [[], ["--approve-preconditions-and-impact"], ["--approve-preconditions-and-impact", "--trust-import-origin"]]:
             with self.subTest(extra=extra), self.assertRaises(ValueError):
@@ -207,6 +209,7 @@ class FindingWorkflowTests(unittest.TestCase):
         verified = self.command("retest", finding["id"], "--run", current["run_id"], "--approve", "--reviewer", "Synthetic Analyst",
                                 "--rationale", "Comparable synthetic negative reviewed", "--trust-import-origin")
         self.assertEqual(verified["outcome"], "Remediated (Verified)")
+        self.assertEqual(verified["new_evidence"]["addresses"], ["192.0.2.10"])
         self.assertEqual(self.command("findings", "list")[0]["latest_retest"]["new_run"], current["run_id"])
         history = self.command("findings", "history", "--finding", finding["id"])
         self.assertEqual(len(history["retests"]), 4)

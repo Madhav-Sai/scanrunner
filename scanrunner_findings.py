@@ -153,6 +153,8 @@ class FindingRepository:
                     "evaluation": evaluation, "evidence": {"artifact": observation["artifact"],
                     "sha256": observation["raw_sha256"], "location": observation["evidence_location"]},
                     "baseline_run": observation["run_id"], "created_at": self.backend.utc_now(),
+                    "observed_at": observation["observed_at"], "source_tool": observation["source_tool"],
+                    "tool_version": observation["tool_version"], "parser_version": observation["parser_version"],
                     "limitations": "Automated observation requires analyst verification", "reviewer": None}
             database.execute("INSERT INTO findings VALUES (?, ?, ?, ?, ?, ?)",
                              (identifier, engagement, observation["asset_id"], observation_id, data["status"], json.dumps(data)))
@@ -246,7 +248,9 @@ class FindingRepository:
                 else:
                     current = self.observation(database, candidates[0]["id"], engagement)
                     evidence = {"observation_id": candidates[0]["id"], "sha256": current["raw_sha256"],
-                                "artifact": current["artifact"], "location": current["evidence_location"]}
+                                "artifact": current["artifact"], "location": current["evidence_location"],
+                                "observed_at": current["observed_at"], "tool_version": current["tool_version"],
+                                "addresses": current["addresses"], "port": current["port"], "transport": current["transport"]}
                     same_method = all(current.get(field) == baseline.get(field) for field in ("source_tool", "tool_version", "parser_version"))
                     configurations = [json.loads(database.execute("SELECT config FROM runs WHERE id=?", (record["run_id"],)).fetchone()[0])
                                       for record in (baseline, current)]
