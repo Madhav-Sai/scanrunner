@@ -22,11 +22,11 @@ Additionally, NetExec summaries say **unverified observations** and require anal
 | Measurement | Audited baseline | After these fixes |
 | --- | --- | --- |
 | Independent offline guard probes | 16/26 pass | 25/26 pass |
-| Regression suite | 121 pass, 1 gated skip | 131 pass, 1 gated skip |
+| Regression suite | 121 pass, 1 gated skip | 132 pass, 1 gated skip |
 | Regression failures / errors | 0 / 0 locally | 0 / 0 locally |
 | Real-world precision, recall, false-positive rate | Unmeasured | Unmeasured |
 
-See `audit-metrics-evidence-fixes.json` and `audit-safety-fixed.json` for source hashes and individual results. The artifact-tampering probe was strengthened to require a successful baseline before tampering. The 26 probe names and denominator remain unchanged. Ten additional regression methods include positive, negative, ambiguous, contradictory and endpoint-mismatch cases with subtests. Two older tests were corrected: their fixtures previously admitted an unrequested host and asserted successful Nmap completion without Nmap artifacts.
+See `audit-metrics-evidence-fixes.json` and `audit-safety-fixed.json` for source hashes and individual results. The artifact-tampering probe was strengthened to require a successful baseline before tampering. The 26 probe names and denominator remain unchanged. Eleven additional regression methods include positive, negative, ambiguous, contradictory, endpoint-mismatch and lock-contention cases with subtests. Two older tests were corrected: their fixtures previously admitted an unrequested host and asserted successful Nmap completion without Nmap artifacts.
 
 Commands executed with the installed Python 3.12 interpreter:
 
@@ -37,7 +37,15 @@ python -B scripts/check_quality.py
 git diff --check
 ```
 
-The safety command intentionally still exits 1: **advertised profiles disagree with the execution policy** (DA-10). Adding the anonymous-session guard also makes `smb-audit` require opt-in. Do not weaken the policy to make this check pass. Profile redesign/deprecation remains pending. **DA-11, intermittent Windows tab-inventory row loss, remains unresolved.** A local passing run does not close that issue. Cross-platform CI must validate this change separately.
+The safety command intentionally still exits 1: **advertised profiles disagree with the execution policy** (DA-10). Adding the anonymous-session guard also makes `smb-audit` require opt-in. Do not weaken the policy to make this check pass. Profile redesign/deprecation remains pending. Cross-platform CI must validate these changes separately.
+
+### Windows inventory repair (DA-11)
+
+A subsequent full run reproduced four inventory rows instead of six. A deterministic contention test then reproduced `PermissionError`: `_FileLock` read the lock byte before attempting to acquire it, and Windows denies reads of another handle's locked byte. Removing this unnecessary read/write lets contending writers reach the acquisition/retry loop. The new test fails on the previous implementation and passes with the fix. Windows permits locking beyond EOF; see [Microsoft's locking contract](https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/locking?view=msvc-170). The full suite passes after this repair; repeated tab-export validation is also recorded below. This repairs the reproduced cause, while cross-platform CI acceptance remains pending.
+
+Artifact-integrity review now distinguishes an incomplete/failed/imported job's preserved evidence from the required evidence for a successfully completed scanner job. Absent process streams on an import cannot imply tampering, and an incomplete scan cannot become resumable success.
+
+Repeated Windows end-to-end validation: ten independent executions of `TabEndToEndTests.test_headless_tabs_fall_back_to_background_and_all_targets_finish` passed (16.393 seconds), each requiring all six target rows after three background workers finish. The earlier repair commit `6622e82` passed all six CI jobs in run `43229417358`; the subsequent lock/import-integrity correction still requires its own CI run.
 
 All scanner output in these tests is synthetic. Process tests run local Python helpers. The real localhost Nmap integration remains gated and was skipped. No public/client scans or new scanner installations were performed.
 

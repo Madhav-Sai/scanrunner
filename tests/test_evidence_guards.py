@@ -82,6 +82,10 @@ class EvidenceGuards(unittest.TestCase):
                 job = store.claim("192.0.2.1")
                 store.finish_job(job, "COMPLETE", 0, True, [tool])
                 self.assertFalse(store.completed("192.0.2.1"))
+                with store.connect() as database:
+                    row = database.execute("SELECT * FROM jobs WHERE id=?", (job["id"],)).fetchone()
+                # An incomplete artifact set limits coverage; it is not evidence tampering.
+                self.assertTrue(store.verify_job(row))
 
     def test_anonymous_nse_requires_opt_in(self):
         with self.assertRaises(ValueError):

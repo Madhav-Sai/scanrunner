@@ -198,10 +198,8 @@ class _FileLock:
 
     def __enter__(self):
         self.file = open(self.path, 'a+b', buffering=0)
-        self.file.seek(0)
-        if not self.file.read(1):
-            self.file.write(b'0')
-            self.file.flush()
+        # Windows locks deny reads too. Never touch the byte before acquiring it.
+        # Both OS APIs allow locking an empty file (including beyond EOF).
         deadline = time.monotonic() + self.timeout
         while True:
             try:
@@ -852,10 +850,10 @@ class RunStore:
             if not Path(row["directory"]).resolve().is_relative_to(expected_root):
                 return False
             manifest = json.loads(row["manifest"])
-            required = {"stdout.bin", "stderr.bin"}
-            if manifest.get("config", {}).get("tool") == "nmap":
+            required = {"stdout.bin", "stderr.bin"} if manifest.get("outcome") == "COMPLETE" else set()
+            if required and manifest.get("config", {}).get("tool") == "nmap":
                 required.update({"nmap.txt", "nmap.xml"})
-            elif manifest.get("config", {}).get("tool") == "nxc":
+            elif required and manifest.get("config", {}).get("tool") == "nxc":
                 required.add("targets.txt")
             if not required <= {item["name"] for item in manifest["artifacts"]}:
                 return False

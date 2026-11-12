@@ -18,6 +18,29 @@ spec.loader.exec_module(sr)
 
 
 class DurableEvidenceTests(unittest.TestCase):
+    def test_contending_writer_waits_without_reading_a_locked_byte(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = str(Path(tmp) / "inventory")
+            Path(path + ".lock").write_bytes(b"0")
+            entered, attempted = threading.Event(), threading.Event()
+            errors = []
+            def writer():
+                attempted.set()
+                try:
+                    with sr._FileLock(path, timeout=3):
+                        entered.set()
+                except Exception as error:
+                    errors.append(error)
+            with sr._FileLock(path):
+                thread = threading.Thread(target=writer)
+                thread.start()
+                self.assertTrue(attempted.wait(1))
+                self.assertFalse(entered.wait(0.2))
+            thread.join(timeout=4)
+            self.assertFalse(thread.is_alive())
+            self.assertEqual(errors, [])
+            self.assertTrue(entered.is_set())
+
     def test_lock_uses_the_same_byte_for_new_and_existing_lock_files(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = str(Path(tmp) / "inventory")
