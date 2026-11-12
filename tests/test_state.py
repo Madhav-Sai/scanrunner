@@ -62,6 +62,11 @@ class DurableEvidenceTests(unittest.TestCase):
             job = store.claim("192.0.2.1")
             artifact = Path(job["directory"]) / "stdout.bin"
             artifact.write_bytes(b"synthetic evidence\x00\xff")
+            (Path(job["directory"]) / "stderr.bin").write_bytes(b"")
+            (Path(job["directory"]) / "nmap.txt").write_text("# Nmap done -- 1 IP address (1 host up) scanned\n")
+            (Path(job["directory"]) / "nmap.xml").write_text(
+                '<nmaprun><host><status state="up"/><address addr="192.0.2.1" addrtype="ipv4"/>'
+                '</host><runstats><finished exit="success"/><hosts up="1" total="1"/></runstats></nmaprun>')
             store.finish_job(job, "COMPLETE", 0, True, ["nmap", "192.0.2.1"])
             self.assertTrue(store.completed("192.0.2.1"))
             changed = sr.RunStore(tmp, {"tool": "nmap", "options": ["-sV", "-p", "443"], "tool_version": "fixture"})

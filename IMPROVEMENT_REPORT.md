@@ -1,5 +1,7 @@
 # ScanRunner improvement and integration report
 
+> Implementation follow-up: nine previously failing guard checks have been repaired; see [EVIDENCE_ACCURACY_FOLLOWUP.md](EVIDENCE_ACCURACY_FOLLOWUP.md) for current results, remaining defects and the labeled-lab measurement procedure. The tables below describe the original audit baseline and roadmap.
+
 This report recommends the next upgrades based on the 2026-11-12 deep audit of pushed implementation `ffef34b`. The evidence, ten reproduced findings and score methodology are recorded in `DEEP_AUDIT_SCORECARD.md`. Recommendations below are proposed work and require their own implementation and acceptance evidence.
 
 The measured local baseline is 121 passing regression tests, one gated integration test and 16 passing independent audit checks out of 26. An earlier CI matrix passed all six jobs, while the latest observed run passed five of six and exposed an intermittent Windows export failure. Real-world vulnerability precision and recall remain unmeasured. The immediate priority is reliable interpretation of evidence and authorization, followed by the analyst workflow and individually reviewed optional adapters.

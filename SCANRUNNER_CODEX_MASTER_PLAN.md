@@ -1,5 +1,7 @@
 # ScanRunner — Codex Master Development Plan and TODO
 
+> Evidence repair follow-up: see EVIDENCE_ACCURACY_FOLLOWUP.md. Nine previously failing guard checks now pass; 131 regression tests pass with one gated skip. DA-10/11 remain open and no additional roadmap task is accepted as complete. Real-world accuracy still requires labeled lab evidence.
+
 > Deep audit update, 2026-11-12. SR-P0-04, SR-P0-06, SR-P0-08, SR-P0-11 and SR-P0-12 are reopened. Earlier completion notes are superseded by DEEP_AUDIT_SCORECARD.md and the independent probe results.
 
 > **Repository:** `https://github.com/Madhav-Sai/scanrunner`

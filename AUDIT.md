@@ -1,4 +1,4 @@
-﻿# ScanRunner baseline audit
+# ScanRunner baseline audit
 
 Date: 2026-11-12. Source audit of checkout version 1.3.0. No scanner executed.
 
@@ -152,3 +152,6 @@ The local master plan was reconstructed from the original UTF-8 Downloads docume
 ## Subsequent CI failure on unchanged application source
 
 Report commit c93f8f9 changed audit documents/tools, with an empty diff for application source, installer source, regression tests and CI workflow against ffef34b. Its CI run 43225397121 passed five of six jobs. Windows/Python 3.10 recorded 120 passes, one failure and one gated integration. The background-tab test reached export validation and found four inventory rows instead of six. DA-11 is an additional high-priority reliability finding outside the fixed 26-check audit set. The prior unbuffered lock correction did not establish complete export stability. Root cause remains under investigation. SR-P0-11 and SR-P0-12 are reopened. The scorecard and improvement report now distinguish the earlier all-green baseline run from this latest completed CI result. audit-ci-latest.json preserves the run/job state.
+# Evidence interpretation follow-up, 2026-11-12
+
+See [EVIDENCE_ACCURACY_FOLLOWUP.md](EVIDENCE_ACCURACY_FOLLOWUP.md) for nine repaired audit failures, 131 passing regressions plus one gated skip, 25/26 independent checks passing, remaining DA-10/11 defects, compatibility effects and the real-world accuracy measurement requirements. Historical audit entries below remain unchanged. P1 drafts are excluded from this repair increment.

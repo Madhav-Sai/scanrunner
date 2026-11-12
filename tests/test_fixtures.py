@@ -58,7 +58,7 @@ class EvidenceFixtureTests(unittest.TestCase):
                 launch.assert_called_once()
 
     def test_netexec_ambiguity_does_not_create_confirmation(self):
-        rows = sr.parse_nxc_output((FIXTURES / "netexec.txt").read_text(), ["192.0.2.10"])
+        rows = sr.parse_nxc_output((FIXTURES / "netexec.txt").read_text(), ["192.0.2.0/24"])
         unknown = next(row for row in rows if row["target"] == "192.0.2.12")
         self.assertEqual(unknown["smb_signing"], "None")
         self.assertFalse(any("confirmed" in str(row).lower() for row in rows))

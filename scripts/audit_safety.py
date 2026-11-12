@@ -158,7 +158,9 @@ def audit(repository):
             job = store.claim("192.0.2.1")
             artifact = Path(job["directory"]) / "stdout.bin"
             artifact.write_bytes(b"synthetic")
+            (Path(job["directory"]) / "stderr.bin").write_bytes(b"")
             store.finish_job(job, "COMPLETE", 0, True, [])
+            require(store.completed("192.0.2.1"), "Valid generic capture failed before tampering")
             artifact.write_bytes(b"tampered")
             require(not store.completed("192.0.2.1"), "Tampered bytes passed resume")
     probe("corrupt_artifact_blocks_resume", hashes)

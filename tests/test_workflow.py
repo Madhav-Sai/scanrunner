@@ -937,7 +937,7 @@ class NxcEndToEndTests(EndToEndBase):
         lines = csv_file.read_text().splitlines()
         self.assertEqual(lines[0], "target,smbv1,smb_signing")
         self.assertEqual(lines[1:], ["10.0.0.5,False,True", "10.0.0.9,True,False"])
-        self.assertIn("2 findings across 2 host(s)", self.last_output)
+        self.assertIn("2 unverified observations across 2 host(s)", self.last_output)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
