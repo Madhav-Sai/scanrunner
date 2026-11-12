@@ -507,14 +507,16 @@ class NxcTests(unittest.TestCase):
                          ("True", "False", "Success", "Windows 10 Build 19041 x64"))
 
     def test_credentials_in_equals_form_suppress_null_auth_injection(self):
+        def capture(command, directory, timeout, live):
+            (Path(directory) / "stdout.bin").write_bytes(b"")
+            (Path(directory) / "stderr.bin").write_bytes(b"")
+            return 0, "Exited"
         with tempfile.TemporaryDirectory() as tmp, \
-             mock.patch.object(sr.subprocess, "Popen") as popen, \
+             mock.patch.object(sr, "capture_process", side_effect=capture) as launch, \
              mock.patch("builtins.print"):
-            popen.return_value.stdout = iter([])
-            popen.return_value.returncode = 0
             sr.run_nxc("nxc", "smb", "10.0.0.5", ["10.0.0.5"], ["--username=alice", "--password=x"],
                        ["null-auth"], tmp)
-            command = popen.call_args[0][0]
+            command = launch.call_args[0][0]
         self.assertNotIn("-u", command)
         self.assertEqual(sr.redact_command(command)[-1], "--password=***")
 
@@ -582,6 +584,9 @@ FAKE_NMAP = r'''#!{python}
 """Fake nmap: behaviour per target comes from $FAKE_NMAP_SCENARIOS (JSON)."""
 import json, os, sys
 argv = sys.argv[1:]
+if argv == ["--version"]:
+    print("Nmap 7.99 synthetic fixture")
+    sys.exit(0)
 if os.environ.get("FAKE_NMAP_ARGV_LOG"):
     with open(os.environ["FAKE_NMAP_ARGV_LOG"], "a") as f:
         f.write(json.dumps(argv) + "\n")
@@ -636,7 +641,7 @@ if kind == "unresolved":
 done = "# Nmap done at Wed Sep 23 17:59:29 2026 -- %d IP address%s (%d host%s up) scanned in 0.10 seconds" % (
     total, "" if total == 1 else "es", up, "" if up == 1 else "s")
 lines.append(done)
-x.append('<runstats><finished/><hosts up="%d" down="%d" total="%d"/></runstats></nmaprun>' % (up, total - up, total))
+x.append('<runstats><finished exit="success"/><hosts up="%d" down="%d" total="%d"/></runstats></nmaprun>' % (up, total - up, total))
 open(normal, "w").write("\n".join(lines) + "\n")
 open(xml, "w").write("\n".join(x) + "\n")
 print("\n".join(lines[1:]))
@@ -650,6 +655,9 @@ sys.exit(0 if sys.argv[-1] in os.environ.get("FAKE_PING_UP", "").split(",") else
 
 FAKE_NXC = r'''#!{python}
 import json, os, sys
+if sys.argv[1:] == ["--version"]:
+    print("NetExec synthetic fixture")
+    sys.exit(0)
 with open(os.environ["FAKE_NXC_ARGV_LOG"], "a") as f:
     f.write(json.dumps(sys.argv[1:]) + "\n")
 print(os.environ["FAKE_NXC_OUTPUT"])
@@ -765,7 +773,12 @@ class SerialEndToEndTests(EndToEndBase):
         target_file = self.targets("10.0.0.1", "10.0.0.2")
         self.run_scan("-f", target_file, "--yes", "--skip-ping")
         self.assertEqual(self.logged("completed.txt"), {"10.0.0.1", "10.0.0.2"})
-        # Simulate a later rescan of 10.0.0.2 that was killed mid-way
+        # Corrupt immutable evidence so resume must refuse its completion record.
+        import sqlite3
+        with sqlite3.connect(self.out / ".scanrunner" / "scanrunner.sqlite3") as database:
+            evidence = database.execute("SELECT directory FROM jobs WHERE target=?", ("10.0.0.2",)).fetchone()[0]
+        database.close()
+        (Path(evidence) / "nmap.txt").write_text(INCOMPLETE_REPORT)
         report = self.out / "10.0.0.2.txt"
         report.write_text(INCOMPLETE_REPORT)
         later = datetime.now().timestamp() + 5
@@ -806,10 +819,10 @@ class ParallelEndToEndTests(EndToEndBase):
         result = self.run_scan("-f", self.targets(*MIXED_TARGETS, "10.0.0.5"),
                                "--yes", "--parallel", "3", "-ok")
         self.assertEqual(result.returncode, 0, self.last_output)
-        self.assertEqual(self.logged("completed.txt"), {"10.0.0.1", "10.9.0.0/30"})
+        self.assertEqual(self.logged("completed.txt"), {"10.0.0.1", "10.9.0.0/30", "10.0.0.5"})
         self.assertEqual(self.logged("not-pingip.txt"), {"10.0.0.2", "10.0.0.4"})
         self.assertEqual(self.logged("failed.txt"), {"10.0.0.3"})
-        self.assertEqual(self.logged("skipped.txt"), {"10.0.0.5"})
+        self.assertEqual(self.logged("skipped.txt"), set())
         self.assertIn("Reconciliation OK", self.last_output)
         self.assertNotIn("10.0.0.4", [call[-1] for call in self.nmap_calls()])
         error_log = self.out / "10.0.0.3.error.log"

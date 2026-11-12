@@ -48,7 +48,11 @@ class EvidenceFixtureTests(unittest.TestCase):
                 report = Path(tmp) / "fixture.txt"
                 report.write_text(scenario["stdout"])
                 result = subprocess.CompletedProcess([], **scenario)
-                with mock.patch.object(sr.subprocess, "run", return_value=result) as launch:
+                def capture(command, directory, timeout, live):
+                    (Path(directory) / "stdout.bin").write_bytes(scenario["stdout"].encode())
+                    (Path(directory) / "stderr.bin").write_bytes(b"")
+                    return result.returncode, "Exited"
+                with mock.patch.object(sr, "capture_process", side_effect=capture) as launch:
                     status, attempts, _ = sr.run_nmap_quiet("192.0.2.10", str(report), [], False, 0)
                 self.assertEqual((status, attempts), ("FAILED", 1))
                 launch.assert_called_once()

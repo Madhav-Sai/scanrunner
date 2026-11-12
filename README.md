@@ -917,3 +917,31 @@ Scanner arguments and NSE scripts must be reviewed for scope preservation.
 Unreviewed scripts and NetExec modules are refused. Credential operations require
 `--allow-intrusive --authorization-note "Engagement authorization reference"`.
 Legacy broad `vuln`, `full-fast` and `web-enum` profiles currently fail this review.
+
+## Durable runs and evidence
+
+Each scanner attempt preserves raw stdout, stderr, XML, command metadata and a
+SHA-256 manifest under `OUTPUT/.scanrunner/runs/RUN_ID/JOB_ID`. SQLite metadata
+tracks jobs, scope snapshots and completion. The private directory restricts
+access to the owner on Unix and owner/SYSTEM/administrators on Windows. Existing
+`<target>.txt`/`.xml` paths provide current report views. Earlier legacy bytes are
+retained with the attempt before those views change. Back up `.scanrunner` with
+reports to retain complete provenance.
+
+`scanrunner --history results --json` reviews runs and outcomes.
+`scanrunner --verify-evidence results --json` checks artifact integrity and returns
+a failure when evidence is missing, corrupt or unfinished.
+
+Resume requires matching tool/version, binary hash, target, scope, profile,
+arguments and execution policy plus valid associated XML and artifact hashes.
+Legacy logs and manual acknowledgements alone cannot mark a new job complete.
+
+Processes default to a 600-second timeout and retries are bounded to five.
+`--global-concurrency` defaults to 4 and `--subnet-concurrency` to 2. These ceilings
+apply to workers sharing an output directory. `--scan-rate` defaults to 100 Nmap
+packets per second, divided across global slots. Raw rate overrides must fit that
+ceiling. Use `--dry-run` to review the effective arguments and impact.
+
+Run `python scripts/check_quality.py` for offline syntax, safety lint and installer
+archive checks. The GitHub Actions workflow runs those checks and the offline
+regression suite on Windows, Linux and macOS.

@@ -33,6 +33,11 @@ OPTIONS = [
     "--nmap", "--reports", "--tabs", "--no-auto-tabs", "--status", "--diff",
     "-v", "--version",
 ]
+OPTIONS.extend([
+    "--dry-run", "--json", "--engagement", "--process-timeout", "--global-concurrency",
+    "--subnet-concurrency", "--scan-rate", "--allow-intrusive", "--authorization-note",
+    "--history", "--verify-evidence",
+])
 
 
 def info(message: str) -> None:

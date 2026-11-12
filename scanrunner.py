@@ -32,11 +32,17 @@ import threading
 import argparse
 import subprocess
 import tempfile
+import hashlib
+import sqlite3
+import uuid
+import signal
+from pathlib import Path
 import xml.etree.ElementTree as ET
 from collections import Counter, deque
-from datetime import datetime
+from contextlib import contextmanager
+from datetime import datetime, timezone
 from urllib.parse import urlsplit
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 
 __version__ = "1.3.0"
 
@@ -172,45 +178,56 @@ def restore_terminal():
 def log_to_file(filename, data):
     with open(filename, "a", encoding="utf-8") as f:
         f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | {data}\n")
+    if ACTIVE_STORE is not None:
+        outcomes = {"completed.txt": "COMPLETE", "skipped.txt": "Skipped",
+                    "not-pingip.txt": "Unreachable or no discovery response", "failed.txt": "FAILED"}
+        outcome = outcomes.get(os.path.basename(filename))
+        if outcome:
+            with ACTIVE_STORE.connect() as database:
+                database.execute("UPDATE run_targets SET outcome=? WHERE run_id=? AND requested=?",
+                                 (outcome, ACTIVE_STORE.run_id, data))
 
 
 class _FileLock:
-    """Advisory lock for a shared file, based on atomic exclusive file creation.
-
-    Several scanrunner processes (e.g. spawned terminal tabs) may write into
-    the same output directory at once. Per-host report files never collide
-    (each is named after its own IP), but files that get rewritten wholesale
-    — the inventory CSV/JSON — need to be serialized so one process's write
-    can't clobber another's. A stale lock from a crashed process is stolen
-    after `timeout` seconds rather than blocking forever.
-    """
+    """OS-owned locks release on process exit and never steal active writers."""
     def __init__(self, path, timeout=30):
-        self.lock_path = path + ".lock"
+        self.path = path + '.lock'
         self.timeout = timeout
-        self._fd = None
+        self.file = None
 
     def __enter__(self):
-        deadline = time.time() + self.timeout
+        self.file = open(self.path, 'a+b')
+        self.file.seek(0)
+        if not self.file.read(1):
+            self.file.write(b'0')
+            self.file.flush()
+        deadline = time.monotonic() + self.timeout
         while True:
             try:
-                self._fd = os.open(self.lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                self.file.seek(0)
+                if os.name == 'nt':
+                    import msvcrt
+                    msvcrt.locking(self.file.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(self.file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
                 return self
-            except FileExistsError:
-                if time.time() > deadline:
-                    try:
-                        os.remove(self.lock_path)
-                    except OSError:
-                        pass
-                    continue
+            except OSError:
+                if time.monotonic() >= deadline:
+                    self.file.close()
+                    raise TimeoutError('Another writer still owns the output lock')
                 time.sleep(0.05)
 
     def __exit__(self, *exc_info):
-        if self._fd is not None:
-            os.close(self._fd)
-        try:
-            os.remove(self.lock_path)
-        except OSError:
-            pass
+        self.file.seek(0)
+        if os.name == 'nt':
+            import msvcrt
+            msvcrt.locking(self.file.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(self.file.fileno(), fcntl.LOCK_UN)
+        self.file.close()
+
 
 LOG_TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
@@ -283,7 +300,50 @@ def count_unique_ips(path):
     return len(read_logged_ips(path))
 
 def sanitize_filename(ip):
-    return ip.replace(":", "_").replace("/", "_")
+    value = str(ip)
+    if "\\" in value or value in {".", ".."} or any(character in value for character in "\x00\r\n"):
+        raise ValueError("Unsafe artifact target name")
+    cleaned = re.sub(r"[^A-Za-z0-9_.-]", "_", value.replace(":", "_").replace("/", "_"))
+    reserved = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
+    if len(cleaned) > 180 or cleaned.split(".")[0].upper() in reserved:
+        cleaned = cleaned[:120] + "_" + hashlib.sha256(value.encode()).hexdigest()[:16]
+    return cleaned
+
+
+def csv_safe(value):
+    text = redact_output_text(str(value if value is not None else ""))
+    if text.lstrip(" \t\r\n").startswith(("=", "+", "-", "@")) or text.startswith(("\t", "\r", "\n")):
+        return "'" + text
+    return text
+
+
+def redact_output_text(text):
+    text = re.sub(r"(?i)\b(password|passwd|token|secret|api[_-]?key|authorization)(\s*[:=]\s*)([^\s,;)]+)",
+                  r"\1\2[REDACTED]", text)
+    if ACTIVE_CONFIG.get("tool") == "nxc":
+        options = ACTIVE_CONFIG.get("options", [])
+        for index, option in enumerate(options):
+            name, equal, value = option.partition("=")
+            if name in {"-p", "--password", "-H", "--hash", "--aesKey", "--key"}:
+                if not equal:
+                    value = options[index + 1] if index + 1 < len(options) else ""
+                if value:
+                    text = text.replace(value, "[REDACTED]")
+    return text
+
+
+@contextmanager
+def atomic_text(path, newline=None):
+    temporary = path + "." + uuid.uuid4().hex + ".tmp"
+    try:
+        with open(temporary, "x", encoding="utf-8", newline=newline) as file:
+            yield file
+            file.flush()
+            os.fsync(file.fileno())
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
 
 def check_nmap_installed():
     if shutil.which("nmap") is None:
@@ -525,6 +585,513 @@ class ScopeGuard:
 
 
 ACTIVE_SCOPE = None
+ACTIVE_STORE = None
+ACTIVE_CONFIG = {}
+CANCEL_EVENT = threading.Event()
+
+
+def request_cancel(signum, frame):
+    CANCEL_EVENT.set()
+    raise KeyboardInterrupt
+
+
+def utc_now():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def file_sha256(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as source:
+        for block in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def secure_storage_directory(path):
+    if os.path.islink(path):
+        raise ValueError("Private storage directory cannot be a symbolic link")
+    os.makedirs(path, mode=0o700, exist_ok=True)
+    if os.name != "nt":
+        os.chmod(path, 0o700)
+        return
+    import ctypes
+    from ctypes import wintypes
+    security = ctypes.WinDLL("advapi32", use_last_error=True)
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    security.ConvertStringSecurityDescriptorToSecurityDescriptorW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p]
+    security.SetFileSecurityW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, ctypes.c_void_p]
+    kernel.LocalFree.argtypes = [ctypes.c_void_p]
+    descriptor = ctypes.c_void_p()
+    # Owner, SYSTEM and administrators. Child evidence inherits this protected DACL.
+    sddl = "D:P(A;OICI;FA;;;OW)(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)"
+    if not security.ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl, 1, ctypes.byref(descriptor), None):
+        raise OSError("Cannot construct private evidence permissions")
+    try:
+        if not security.SetFileSecurityW(path, 0x80000004, descriptor):
+            raise OSError("Cannot apply private evidence permissions")
+    finally:
+        kernel.LocalFree(descriptor)
+
+
+class CapacityBusy(RuntimeError):
+    pass
+
+
+class RunStore:
+    """Transactional job ownership and immutable run evidence, schema version 1."""
+    def __init__(self, directory, config=None):
+        self.directory = os.path.abspath(directory)
+        os.makedirs(self.directory, mode=0o700, exist_ok=True)
+        self.storage_directory = os.path.join(self.directory, ".scanrunner")
+        secure_storage_directory(self.storage_directory)
+        self.database = os.path.join(self.storage_directory, "scanrunner.sqlite3")
+        self.run_id = uuid.uuid4().hex
+        self.config = config or {}
+        with self.connect() as database:
+            if database.execute("PRAGMA user_version").fetchone()[0] > 1:
+                raise ValueError("Run database schema is newer than this ScanRunner version")
+            database.executescript("""
+                CREATE TABLE IF NOT EXISTS engagements (
+                    id TEXT PRIMARY KEY, scope TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS runs (
+                    id TEXT PRIMARY KEY, engagement TEXT NOT NULL, config TEXT NOT NULL,
+                    started TEXT NOT NULL, ended TEXT, outcome TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS run_targets (
+                    run_id TEXT NOT NULL, requested TEXT NOT NULL, resolved TEXT NOT NULL,
+                    outcome TEXT NOT NULL, PRIMARY KEY(run_id, requested));
+                CREATE TABLE IF NOT EXISTS jobs (
+                    id TEXT PRIMARY KEY, run_id TEXT NOT NULL, target TEXT NOT NULL,
+                    fingerprint TEXT NOT NULL, started TEXT NOT NULL, ended TEXT,
+                    outcome TEXT NOT NULL, exit_code INTEGER, parser_ok INTEGER NOT NULL DEFAULT 0,
+                    directory TEXT NOT NULL, manifest TEXT);
+                CREATE INDEX IF NOT EXISTS jobs_target ON jobs(target, fingerprint, started);
+                CREATE TABLE IF NOT EXISTS claims (
+                    target TEXT NOT NULL, fingerprint TEXT NOT NULL, job_id TEXT NOT NULL,
+                    expires REAL NOT NULL, PRIMARY KEY(target, fingerprint));
+                CREATE TABLE IF NOT EXISTS job_events (
+                    job_id TEXT NOT NULL, at_utc TEXT NOT NULL, previous TEXT, outcome TEXT NOT NULL);
+                PRAGMA user_version=1;
+            """)
+            if "subnets" not in {row["name"] for row in database.execute("PRAGMA table_info(jobs)")}:
+                database.execute("ALTER TABLE jobs ADD COLUMN subnets TEXT NOT NULL DEFAULT '[]'")
+            engagement = str(self.config.get("engagement", "default"))
+            database.execute("INSERT OR IGNORE INTO engagements VALUES (?, ?)",
+                             (engagement, json.dumps(self.config.get("scope", []))))
+            safe_config = self.public_config()
+            database.execute("INSERT INTO runs VALUES (?, ?, ?, ?, NULL, 'Running')",
+                             (self.run_id, engagement, json.dumps(safe_config), utc_now()))
+            for target in self.config.get("targets", []):
+                database.execute("INSERT INTO run_targets VALUES (?, ?, ?, 'Queued')",
+                                 (self.run_id, target, json.dumps(self.config.get("dns_answers", {}).get(target, [target]))))
+        if os.name != "nt":
+            os.chmod(self.database, 0o600)
+
+    @contextmanager
+    def connect(self):
+        database = sqlite3.connect(self.database, timeout=30)
+        try:
+            database.execute("PRAGMA busy_timeout=30000")
+            database.execute("PRAGMA journal_mode=WAL")
+            database.row_factory = sqlite3.Row
+            with database:
+                yield database
+        finally:
+            database.close()
+
+    def public_config(self):
+        config = dict(self.config)
+        config["options"] = redact_command(["nxc", *config.get("options", [])])[1:] if config.get("tool") == "nxc" else config.get("options", [])
+        return config
+
+    def fingerprint(self, target, use_pn=False):
+        config = {**self.config, "target": target.lower(), "use_pn": use_pn}
+        return hashlib.sha256(json.dumps(config, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+    def claim(self, target, use_pn=False):
+        fingerprint = self.fingerprint(target, use_pn)
+        job_id = uuid.uuid4().hex
+        directory = os.path.join(self.storage_directory, "runs", self.run_id, job_id)
+        now = time.time()
+        subnets = set()
+        subjects = self.config.get("scope", []) if self.config.get("tool") == "nxc" else [target]
+        for subject in subjects:
+            resolved = self.config.get("dns_answers", {}).get(subject, [subject])
+            for address in resolved:
+                for network in _scope_networks([address]):
+                    prefix = 24 if network.version == 4 else 64
+                    if network.prefixlen < prefix and 2 ** (prefix - network.prefixlen) > 4096:
+                        raise ValueError("Target spans more than 4096 concurrency subnets; split the engagement")
+                    groups = network.subnets(new_prefix=prefix) if network.prefixlen < prefix else [network.supernet(new_prefix=prefix)]
+                    subnets.update(str(group) for group in groups)
+        with self.connect() as database:
+            database.execute("BEGIN IMMEDIATE")
+            expired = database.execute("SELECT job_id FROM claims WHERE expires < ?", (now,)).fetchall()
+            for row in expired:
+                database.execute("UPDATE jobs SET outcome='Interrupted', ended=? WHERE id=? AND outcome='Running'",
+                                 (utc_now(), row["job_id"]))
+                database.execute("INSERT INTO job_events VALUES (?, ?, 'Running', 'Interrupted')", (row["job_id"], utc_now()))
+            database.execute("DELETE FROM claims WHERE expires < ?", (now,))
+            if database.execute("SELECT 1 FROM claims WHERE target=?", (target,)).fetchone():
+                return None
+            active = database.execute("SELECT jobs.subnets, runs.config FROM jobs JOIN runs ON jobs.run_id=runs.id WHERE jobs.outcome='Running'").fetchall()
+            policies = [json.loads(row["config"]) for row in active]
+            global_ceiling = min([self.config.get("global_workers", 4)] + [policy.get("global_workers", 4) for policy in policies])
+            subnet_ceiling = min([self.config.get("subnet_workers", 2)] + [policy.get("subnet_workers", 2) for policy in policies])
+            if any(policy.get("scan_rate", 100) != self.config.get("scan_rate", 100) for policy in policies):
+                raise CapacityBusy("Another scan-rate policy is currently active")
+            if len(active) >= global_ceiling:
+                raise CapacityBusy("Global scanner concurrency ceiling reached")
+            if any(sum(subnet in json.loads(row["subnets"]) for row in active) >= subnet_ceiling
+                   for subnet in subnets):
+                raise CapacityBusy("Per-subnet scanner concurrency ceiling reached")
+            try:
+                database.execute("INSERT INTO claims VALUES (?, ?, ?, ?)",
+                                 (target, fingerprint, job_id, now + self.config.get("timeout", 600) + 60))
+            except sqlite3.IntegrityError:
+                return None
+            database.execute("INSERT INTO jobs (id,run_id,target,fingerprint,started,outcome,directory) VALUES (?,?,?,?,?,'Running',?)",
+                             (job_id, self.run_id, target, fingerprint, utc_now(), directory))
+            database.execute("UPDATE jobs SET subnets=? WHERE id=?", (json.dumps(sorted(subnets)), job_id))
+            database.execute("INSERT INTO job_events VALUES (?, ?, NULL, 'Running')", (job_id, utc_now()))
+        os.makedirs(directory, mode=0o700, exist_ok=False)
+        return {"id": job_id, "directory": directory, "target": target, "fingerprint": fingerprint}
+
+    def wait_claim(self, target, use_pn=False):
+        deadline = time.monotonic() + self.config.get("timeout", 600)
+        while not CANCEL_EVENT.is_set():
+            try:
+                return self.claim(target, use_pn)
+            except CapacityBusy:
+                if time.monotonic() > deadline:
+                    raise ValueError("Concurrency capacity wait timed out")
+                time.sleep(0.05)
+        return None
+
+    def finish_job(self, job, outcome, exit_code, parser_ok, command):
+        artifacts = []
+        for name in sorted(os.listdir(job["directory"])):
+            path = os.path.join(job["directory"], name)
+            if os.path.isfile(path):
+                artifacts.append({"name": name, "sha256": file_sha256(path), "size": os.path.getsize(path)})
+        safe_argv = redact_command(command) if self.config.get("tool") == "nxc" else command
+        manifest = {"run_id": self.run_id, "job_id": job["id"], "target": job["target"],
+                    "fingerprint": job["fingerprint"], "ended_utc": utc_now(), "argv": safe_argv,
+                    "tool_version": self.config.get("tool_version", "Not determined"),
+                    "outcome": outcome, "exit_code": exit_code, "parser_ok": parser_ok,
+                    "artifacts": artifacts, "config": self.public_config()}
+        with self.connect() as database:
+            manifest["started_utc"] = database.execute("SELECT started FROM jobs WHERE id=?", (job["id"],)).fetchone()[0]
+        with open(os.path.join(job["directory"], "manifest.json"), "x", encoding="utf-8") as file:
+            json.dump(manifest, file, indent=2)
+        with self.connect() as database:
+            database.execute("UPDATE jobs SET ended=?, outcome=?, exit_code=?, parser_ok=?, manifest=? WHERE id=? AND outcome='Running'",
+                             (utc_now(), outcome, exit_code, int(parser_ok), json.dumps(manifest), job["id"]))
+            database.execute("DELETE FROM claims WHERE job_id=?", (job["id"],))
+            database.execute("INSERT INTO job_events VALUES (?, ?, 'Running', ?)", (job["id"], utc_now(), outcome))
+
+    def verify_job(self, row):
+        try:
+            expected_root = Path(self.directory).resolve() / ".scanrunner" / "runs"
+            if not Path(row["directory"]).resolve().is_relative_to(expected_root):
+                return False
+            manifest = json.loads(row["manifest"])
+            manifest_path = os.path.join(row["directory"], "manifest.json")
+            with open(manifest_path, encoding="utf-8") as file:
+                if json.load(file) != manifest:
+                    return False
+            for artifact in manifest["artifacts"]:
+                path = os.path.abspath(os.path.join(row["directory"], artifact["name"]))
+                if os.path.dirname(path) != os.path.abspath(row["directory"]):
+                    return False
+                if os.path.getsize(path) != artifact["size"] or file_sha256(path) != artifact["sha256"]:
+                    return False
+            return True
+        except (OSError, ValueError, KeyError, TypeError):
+            return False
+
+    def completed(self, target, use_pn=False):
+        with self.connect() as database:
+            row = database.execute("SELECT * FROM jobs WHERE target=? AND fingerprint=? ORDER BY started DESC LIMIT 1",
+                                   (target, self.fingerprint(target, use_pn))).fetchone()
+        if row and row["outcome"] == "COMPLETE" and row["parser_ok"]:
+            if self.verify_job(row):
+                return True
+            print(f"Evidence verification failed for {target}; rescan required", file=sys.stderr)
+        return False
+
+    def end(self, outcome):
+        with self.connect() as database:
+            database.execute("UPDATE runs SET ended=?, outcome=? WHERE id=?", (utc_now(), outcome, self.run_id))
+
+
+def stop_process(process):
+    if process.poll() is not None:
+        return
+    if os.name == "posix":
+        os.killpg(process.pid, signal.SIGTERM)
+    else:
+        process.terminate()
+    try:
+        process.wait(timeout=3)
+    except subprocess.TimeoutExpired:
+        if os.name == "posix":
+            os.killpg(process.pid, signal.SIGKILL)
+        else:
+            process.kill()
+        process.wait(timeout=3)
+
+
+POSIX_SUPERVISOR = r'''
+import os, signal, subprocess, sys, time
+parent = int(sys.argv[1])
+def stop_group(signum=None, frame=None):
+    os.killpg(os.getpgrp(), signal.SIGKILL)
+signal.signal(signal.SIGTERM, stop_group)
+if os.getppid() != parent:
+    stop_group()
+child = subprocess.Popen(sys.argv[2:], stdin=subprocess.DEVNULL)
+while child.poll() is None:
+    if os.getppid() != parent:
+        stop_group()
+    time.sleep(0.05)
+sys.exit(child.returncode if child.returncode >= 0 else 128 - child.returncode)
+'''
+
+
+class WindowsProcessJob:
+    """Kill scanner descendants when their owning capture operation ends."""
+    def __init__(self, process):
+        self.handle = None
+        if os.name != "nt":
+            return
+        import ctypes
+        from ctypes import wintypes
+        class BasicLimits(ctypes.Structure):
+            _fields_ = [("process_time", ctypes.c_longlong), ("job_time", ctypes.c_longlong),
+                        ("flags", wintypes.DWORD), ("minimum", ctypes.c_size_t), ("maximum", ctypes.c_size_t),
+                        ("active", wintypes.DWORD), ("affinity", ctypes.c_size_t),
+                        ("priority", wintypes.DWORD), ("scheduling", wintypes.DWORD)]
+        class IoCounters(ctypes.Structure):
+            _fields_ = [(name, ctypes.c_ulonglong) for name in
+                        ("read_ops", "write_ops", "other_ops", "read_bytes", "write_bytes", "other_bytes")]
+        class ExtendedLimits(ctypes.Structure):
+            _fields_ = [("basic", BasicLimits), ("io", IoCounters), ("process_memory", ctypes.c_size_t),
+                        ("job_memory", ctypes.c_size_t), ("peak_process", ctypes.c_size_t), ("peak_job", ctypes.c_size_t)]
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+        kernel.CreateJobObjectW.restype = wintypes.HANDLE
+        kernel.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+        kernel.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+        kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        handle = kernel.CreateJobObjectW(None, None)
+        limits = ExtendedLimits()
+        limits.basic.flags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        if not handle or not kernel.SetInformationJobObject(handle, 9, ctypes.byref(limits), ctypes.sizeof(limits)):
+            if handle:
+                kernel.CloseHandle(handle)
+            stop_process(process)
+            raise OSError("Cannot create scanner process containment")
+        if not kernel.AssignProcessToJobObject(handle, wintypes.HANDLE(int(process._handle))):
+            failure = ctypes.get_last_error()
+            kernel.CloseHandle(handle)
+            stop_process(process)
+            raise OSError(f"Cannot contain scanner child processes (Windows error {failure})")
+        self.handle = handle
+        self.kernel = kernel
+        native = ctypes.WinDLL("ntdll")
+        native.NtResumeProcess.argtypes = [wintypes.HANDLE]
+        native.NtResumeProcess.restype = ctypes.c_long
+        if native.NtResumeProcess(wintypes.HANDLE(int(process._handle))) != 0:
+            self.close()
+            raise OSError("Cannot resume contained scanner process")
+
+    def close(self):
+        if self.handle:
+            self.kernel.CloseHandle(self.handle)
+            self.handle = None
+
+
+def capture_process(command, directory, timeout=600, live=False):
+    """Preserve exact stdout/stderr and bound execution, including cancellation."""
+    execution = [sys.executable, "-c", POSIX_SUPERVISOR, str(os.getpid()), *command] if os.name == "posix" else command
+    process = subprocess.Popen(execution, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, start_new_session=os.name == "posix",
+                               creationflags=(subprocess.CREATE_NEW_PROCESS_GROUP | 0x4) if os.name == "nt" else 0)
+    tree = WindowsProcessJob(process)
+    lines = queue.Queue(maxsize=128)
+    capture_errors = []
+    stop_keys = threading.Event()
+    key_state = []
+    def watch_keys():
+        if not live or not RAW_MODE_SUPPORTED or not sys.stdin.isatty():
+            return
+        try:
+            tty.setraw(sys.stdin.fileno())
+            while not stop_keys.is_set():
+                ready, _, _ = select.select([sys.stdin], [], [], 0.1)
+                if ready:
+                    key = sys.stdin.read(1)
+                    if key in {"\x03", "\x18"}:
+                        key_state.append("Interrupted" if key == "\x03" else "SKIPPED")
+                        break
+                    if key == " ":
+                        print(f"\r\nScanner PID {process.pid}, running {time.monotonic() - started:.1f}s\r\n")
+        finally:
+            restore_terminal()
+    def copy_stream(stream, name):
+        try:
+            with open(os.path.join(directory, name), "xb") as file:
+                while True:
+                    block = stream.read1(4096)
+                    if not block:
+                        break
+                    file.write(block)
+                    file.flush()
+                    if live:
+                        try:
+                            lines.put_nowait(block.decode("utf-8", errors="replace"))
+                        except queue.Full:
+                            pass  # Raw bytes remain complete in the artifact.
+        except OSError as error:
+            capture_errors.append(str(error))
+        finally:
+            stream.close()
+    readers = [threading.Thread(target=copy_stream, args=(process.stdout, "stdout.bin")),
+               threading.Thread(target=copy_stream, args=(process.stderr, "stderr.bin"))]
+    for reader in readers:
+        reader.start()
+    started = time.monotonic()
+    watcher = threading.Thread(target=watch_keys, daemon=True)
+    watcher.start()
+    state = "Exited"
+    try:
+        while process.poll() is None:
+            if CANCEL_EVENT.is_set():
+                state = "Interrupted"
+                stop_process(process)
+                break
+            if key_state:
+                state = key_state[0]
+                stop_process(process)
+                break
+            if time.monotonic() - started > timeout:
+                state = "TIMEOUT"
+                stop_process(process)
+                break
+            try:
+                print(lines.get(timeout=0.05), end="")
+            except queue.Empty:
+                pass
+    except KeyboardInterrupt:
+        state = "Interrupted"
+        stop_process(process)
+    finally:
+        tree.close()
+        if os.name == "posix":
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+        stop_keys.set()
+        watcher.join(timeout=1)
+        restore_terminal()
+        for reader in readers:
+            reader.join(timeout=5)
+        if any(reader.is_alive() for reader in readers):
+            stop_process(process)
+            state = "Interrupted"
+        while not lines.empty():
+            print(lines.get_nowait(), end="")
+    if capture_errors:
+        state = "CAPTURE_FAILED"
+    return process.returncode, state
+
+
+def validate_nmap_evidence(report, target, returncode):
+    if returncode != 0:
+        return "FAILED", False
+    if not os.path.exists(report) or os.path.getsize(report) == 0:
+        return "EMPTY", False
+    status = get_file_status(report)
+    if status not in {"COMPLETE", "DOWN"}:
+        return status, False
+    try:
+        root = read_nmap_xml(_xml_report_path(report))
+        if root.find("runstats/finished") is None or root.find("runstats/hosts") is None:
+            return "INCOMPLETE", False
+        if root.find("runstats/finished").get("exit") != "success":
+            return "INCOMPLETE", False
+        if int(root.find("runstats/hosts").get("total", "0")) == 0:
+            return "UNRESOLVED", False
+        if any(host.get("timedout") == "true" for host in root.findall("host")):
+            return "TIMEOUT", False
+        up_count = int(root.find("runstats/hosts").get("up", "0"))
+        observed_up = sum(host.find("status") is not None and host.find("status").get("state") == "up"
+                          for host in root.findall("host"))
+        if (status == "COMPLETE" and (up_count < 1 or up_count != observed_up)) or (status == "DOWN" and up_count != 0):
+            return "INCONCLUSIVE", False
+        if ACTIVE_SCOPE is not None:
+            destinations = ACTIVE_SCOPE.destinations(target)
+            for host in root.findall("host"):
+                addresses = [a.get("addr", "") for a in host.findall("address") if a.get("addrtype") in {"ipv4", "ipv6"}]
+                if not addresses or not all(target_in_scope(address, destinations) for address in addresses):
+                    return "INCONCLUSIVE", False
+        _hosts_from_xml(_xml_report_path(report))
+        return status, True
+    except (OSError, ValueError, ET.ParseError):
+        return "INCOMPLETE", False
+
+
+def publish_report_cache(job, report):
+    """Keep legacy report paths as replaceable views, retaining pre-migration bytes."""
+    for suffix in (".txt", ".xml", ".error.log"):
+        destination = os.path.splitext(report)[0] + suffix
+        if os.path.isfile(destination):
+            snapshot = os.path.join(job["directory"], "legacy-before" + suffix)
+            shutil.copyfile(destination, snapshot)
+        source = os.path.join(job["directory"], "nmap" + suffix)
+        temporary = destination + "." + uuid.uuid4().hex + ".tmp"
+        if os.path.exists(source):
+            shutil.copyfile(source, temporary)
+        else:
+            with open(temporary, "xb"):
+                pass
+        os.replace(temporary, destination)
+
+
+def execute_nmap(target, report, options, use_pn=False, live=False):
+    store = ACTIVE_STORE or RunStore(os.path.dirname(os.path.abspath(report)), {"tool": "nmap", "options": options})
+    job = store.wait_claim(target, use_pn)
+    if job is None:
+        return "CLAIMED", "Target already owned by another worker"
+    output = os.path.join(job["directory"], "nmap.txt")
+    command = []
+    code = None
+    status, parsed, detail = "Interrupted", False, ""
+    try:
+        command = _build_nmap_command(target, output, options, use_pn)
+        code, process_state = capture_process(command, job["directory"], store.config.get("timeout", 600), live)
+        status, parsed = validate_nmap_evidence(output, target, code)
+        if process_state != "Exited":
+            status, parsed = process_state, False
+        captured = ""
+        for name in ("stdout.bin", "stderr.bin"):
+            with open(os.path.join(job["directory"], name), "rb") as file:
+                captured += file.read().decode("utf-8", errors="replace")
+        fatal = nmap_fatal_reason(captured.splitlines())
+        if fatal:
+            status, parsed, detail = "FATAL", False, fatal
+        publish_report_cache(job, report)
+        if status not in {"COMPLETE", "DOWN"}:
+            error_path = os.path.splitext(report)[0] + ".error.log"
+            with open(error_path, "w", encoding="utf-8") as file:
+                file.write(captured)
+            detail = detail or f"{status}; raw evidence: {job['directory']}"
+    except (OSError, ValueError) as error:
+        status, parsed, detail = "FAILED", False, str(error)
+    finally:
+        store.finish_job(job, status, code, parsed, command)
+    return status, detail
 
 
 def validate_scan_options(options, nxc=False, allow_intrusive=False):
@@ -541,7 +1108,7 @@ def validate_scan_options(options, nxc=False, allow_intrusive=False):
                  "--open", "--reason", "--version-light", "--version-all", "--osscan-limit",
                  "--osscan-guess", "--disable-arp-ping", "--send-ip", "--send-eth", "--unprivileged",
                  "--privileged", "--defeat-rst-ratelimit", "--defeat-icmp-ratelimit"}
-    approved_scripts = {"http-title", "http-headers", "ssl-enum-ciphers", "smb-os-discovery",
+    approved_scripts = {"ssl-enum-ciphers", "smb-os-discovery",
                         "smb-protocols", "smb-security-mode", "rdp-enum-encryption", "rdp-ntlm-info"}
     index = 0
     while index < len(options):
@@ -761,6 +1328,23 @@ OPTION_ALIASES = {
     "--status": "status", "status": "status", "--diff": "diff", "diff": "diff",
 }
 
+for _name, _description in {
+    "dry-run": "Preview argv, impact, privileges and output destinations without DNS or process execution.",
+    "json": "Print JSON with --dry-run or a durable-history review command.",
+    "engagement": "Set the engagement identifier stored with runs and scope snapshots.",
+    "process-timeout": "Bound each scanner process in seconds (default 600). Partial evidence is retained.",
+    "global-concurrency": "Set the shared output-directory scanner concurrency ceiling (default 4).",
+    "subnet-concurrency": "Set the scanner concurrency ceiling per IPv4 /24 or IPv6 /64 (default 2).",
+    "scan-rate": "Set the aggregate Nmap packet-rate ceiling divided across global workers (default 100 PPS).",
+    "allow-intrusive": "Opt in to credential operations with --authorization-note.",
+    "authorization-note": "Record the explicit authorization reference for credential operations.",
+    "history": "Review durable run and job metadata with --history [DIR] [--json].",
+    "verify-evidence": "Verify raw artifact hashes with --verify-evidence [DIR] [--json]. Returns failure for missing, corrupt or unfinished evidence.",
+}.items():
+    OPTION_HELP[_name] = "--" + _name + "\n" + _description
+    OPTION_ALIASES["--" + _name] = _name
+    OPTION_ALIASES[_name] = _name
+
 
 def print_template_catalog():
     print("\nAvailable templates:\n")
@@ -800,6 +1384,7 @@ def completion_script(shell):
         "--nmap", "--reports", "--nxc-native-help", "--completion",
         "--status", "--diff",
     ]
+    options.extend("--" + name for name in OPTION_HELP if "--" + name not in options)
     profiles = " ".join(sorted(SCAN_PROFILES))
     protocols = "smb rdp ldap winrm ssh ftp mssql wmi vnc nfs"
     queries = " ".join(sorted(NXC_QUERY_CHOICES))
@@ -1039,6 +1624,15 @@ def parse_args():
     workflow_group.add_argument("--allow-intrusive", action="store_true",
                         help="Opt in to explicitly authorized credential operations")
     workflow_group.add_argument("--authorization-note", help="Record the authorization for credential operations")
+    workflow_group.add_argument("--engagement", default="default", help="Engagement identifier for durable run history")
+    workflow_group.add_argument("--process-timeout", type=int, default=600, metavar="SECONDS",
+                        help="Overall scanner timeout (1 to 86400 seconds, default 600)")
+    workflow_group.add_argument("--global-concurrency", type=int, default=4, metavar="N",
+                        help="Shared scanner concurrency ceiling in the output directory (default 4)")
+    workflow_group.add_argument("--subnet-concurrency", type=int, default=2, metavar="N",
+                        help="Concurrent scans per IPv4 /24 or IPv6 /64 (default 2)")
+    workflow_group.add_argument("--scan-rate", type=int, default=100, metavar="PPS",
+                        help="Aggregate Nmap packet-rate ceiling divided across global workers (default 100)")
     workflow_group.add_argument("--retries", type=int, default=0, metavar="N",
                         help="Retry failed scans up to N times")
     workflow_group.add_argument("--parallel", type=int, default=1, metavar="N",
@@ -1069,6 +1663,10 @@ def parse_args():
     # e.g. --script-args "user=admin pass=hi" becomes two broken tokens.
     if args.retries < 0 or args.parallel < 1:
         parser.error("--retries must be zero or greater and --parallel must be at least 1")
+    if args.retries > 5 or args.parallel > 16 or not 1 <= args.process_timeout <= 86400:
+        parser.error("Limits: retries <= 5, parallel <= 16, process timeout 1..86400 seconds")
+    if not 1 <= args.subnet_concurrency <= args.global_concurrency <= 16 or not 16 <= args.scan_rate <= 10000:
+        parser.error("Concurrency must satisfy 1 <= subnet <= global <= 16; scan rate must be 16..10000")
     if args.tabs is not None:
         if args.tabs < 2:
             parser.error("--tabs must be at least 2")
@@ -1137,6 +1735,8 @@ def parse_args():
     args.nmap_args  = " ".join(nmap_extra)   # human-readable display only
     if args.allow_intrusive and not args.authorization_note:
         parser.error("--allow-intrusive requires --authorization-note")
+    if args.json and not args.dry_run:
+        parser.error("--json is supported with --dry-run and review commands")
     if args.output is None:
         args.output = "." if args.nxc else "results"
     return args
@@ -1497,55 +2097,61 @@ def _run_nxc_command(binary, protocol, target_source, targets, nxc_extra, querie
     print(c(C.DIM, "  Command : " + " ".join(redact_command(command))))
     print(c(C.DIM, "─" * 70))
 
-    try:
-        process = subprocess.Popen(
-            command,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-        )
-    except FileNotFoundError:
-        print(c(C.RED, f"  [!] NetExec binary not found: {binary}"))
+    store = ACTIVE_STORE or RunStore(output_dir, {'tool': 'nxc', 'options': effective_extra})
+    job = store.wait_claim(protocol + ':' + ','.join(targets))
+    if job is None:
+        print('NetExec target set is already claimed')
         return False
-
-    captured = []
-    assert process.stdout is not None
-    for line in process.stdout:
-        captured.append(line)
-        print(line, end="")
-    process.wait()
-    output = "".join(captured)
-
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
-    raw_path = os.path.join(output_dir, f"nxc-{sanitize_filename(protocol)}-{timestamp}.txt")
-    with open(raw_path, "w", encoding="utf-8") as file:
-        file.write(output)
-
-    print(c(C.DIM, "─" * 70))
+    command = []
+    code, process_state, output = None, 'Interrupted', ''
+    try:
+        source_path = os.path.join(job['directory'], 'targets.txt')
+        if os.path.isfile(target_source):
+            shutil.copyfile(target_source, source_path)
+        else:
+            with open(source_path, 'x', encoding='utf-8') as file:
+                file.write(target_source + '\n')
+        command = [binary, protocol, source_path, *effective_extra]
+        if ACTIVE_CONFIG.get("binary_sha256") and file_sha256(binary) != ACTIVE_CONFIG["binary_sha256"]:
+            raise ValueError("Scanner binary changed since run authorization")
+        code, process_state = capture_process(command, job['directory'], store.config.get('timeout', 600), live=False)
+        with open(os.path.join(job['directory'], 'stdout.bin'), 'rb') as file:
+            output = file.read().decode('utf-8', errors='replace')
+    finally:
+        store.finish_job(job, 'COMPLETE' if code == 0 and process_state == 'Exited' else
+                         ('FAILED' if process_state == 'Exited' else process_state),
+                         code, code == 0 and process_state == 'Exited', command)
+    timestamp = datetime.now().strftime('%Y%m%d-%H%M%S-%f')
+    raw_path = os.path.join(job['directory'], 'stdout.bin')
     rows = parse_nxc_output(
         output, targets,
         null_auth_attempt=uses_anonymous_nxc_credentials(effective_extra),
     )
+    rows = [{field: redact_output_text(str(value)) for field, value in row.items()} for row in rows]
     columns = nxc_table_columns(protocol, queries)
     print_nxc_table(rows, columns, protocol=protocol)
 
     fieldnames = [field for field, _ in columns]
     csv_path = os.path.join(output_dir, f"nxc-{sanitize_filename(protocol)}-{timestamp}.csv")
     json_path = os.path.join(output_dir, f"nxc-{sanitize_filename(protocol)}-{timestamp}.json")
-    with open(csv_path, "w", newline="", encoding="utf-8") as file:
+    with atomic_text(csv_path, newline="") as file:
         writer = csv.DictWriter(file, fieldnames=fieldnames)
         writer.writeheader()
-        writer.writerows({field: row.get(field, "") for field in fieldnames} for row in rows)
-    with open(json_path, "w", encoding="utf-8") as file:
+        writer.writerows({field: csv_safe(row.get(field, "")) for field in fieldnames} for row in rows)
+    with atomic_text(json_path) as file:
         json.dump([{field: row.get(field, "") for field in fieldnames} for row in rows], file, indent=2)
 
     print(c(C.GREEN, f"  [+] Saved NXC output: {raw_path}"))
     print(c(C.GREEN, f"  [+] Saved table data: {csv_path}, {json_path}"))
-    if process.returncode != 0:
-        print(c(C.RED, f"  [!] NetExec exited with status {process.returncode}. See raw output above."))
-    return process.returncode == 0
+    if code != 0:
+        print(c(C.RED, f"  [!] NetExec exited with status {code}. See raw output above."))
+    with store.connect() as database:
+        for target in targets:
+            database.execute("UPDATE run_targets SET outcome=? WHERE run_id=? AND requested=?",
+                             ("COMPLETE" if code == 0 and process_state == "Exited" else process_state,
+                              store.run_id, target))
+    store.end("Finished; review individual NetExec outcomes")
+    return code == 0 and process_state == 'Exited'
 
 
 
@@ -1655,10 +2261,21 @@ def _xml_report_path(report_path):
     return f"{os.path.splitext(report_path)[0]}.xml"
 
 
-def _hosts_from_xml(xml_path):
-    root = ET.parse(xml_path).getroot()
+def read_nmap_xml(xml_path):
+    if os.path.getsize(xml_path) > 32 * 1024 * 1024:
+        raise ValueError("Nmap XML exceeds the 32 MiB parser limit")
+    with open(xml_path, "rb") as file:
+        data = file.read()
+    if b"\x00" in data or b"<!ENTITY" in data.upper() or re.search(br"<!DOCTYPE\b[^>]*\[", data, re.IGNORECASE):
+        raise ValueError("XML entities and internal DTD subsets are refused")
+    root = ET.fromstring(data)
     if root.tag != "nmaprun":
         raise ValueError("not an Nmap XML report")
+    return root
+
+
+def _hosts_from_xml(xml_path):
+    root = read_nmap_xml(xml_path)
     hosts = []
     for host in root.findall("host"):
         status = host.find("status")
@@ -1795,7 +2412,9 @@ def progress_bar(done, total):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _build_nmap_command(target, output_file, nmap_extra, use_pn=False):
-    cmd = ["nmap"]
+    cmd = [ACTIVE_CONFIG.get("binary", "nmap")]
+    if ACTIVE_CONFIG.get("binary_sha256") and file_sha256(cmd[0]) != ACTIVE_CONFIG["binary_sha256"]:
+        raise ValueError("Scanner binary changed since run authorization")
 
     # Show Nmap progress every 15 seconds
     if not has_nmap_option(nmap_extra, "--stats-every"):
@@ -1817,7 +2436,7 @@ def _build_nmap_command(target, output_file, nmap_extra, use_pn=False):
     cmd.extend(["-oN", output_file, "-oX", xml_file, "--", *destinations])
 
     return cmd
-   
+
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1857,221 +2476,15 @@ def _rclear():
 
 
 def run_nmap_scan(target, output_file, nmap_extra, use_pn=False):
-    cmd = _build_nmap_command(target, output_file, nmap_extra, use_pn)
-
-    _rprint(c(C.DIM, "  Command : " + " ".join(cmd)))
-    _rprint(c(C.DIM, "─" * 70))
-
-    try:
-        proc = subprocess.Popen(
-            cmd,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1
-        )
-    except FileNotFoundError:
-        _rprint(c(C.RED, "  [!] nmap binary not found."))
-        return False
-
-    skip_flag        = threading.Event()
-    abort_flag       = threading.Event()
-    status_requested = threading.Event()
-    _proc_done       = threading.Event()
-
-    line_queue    = queue.Queue()
-    stdin_is_tty  = sys.stdin.isatty()
-    open_ports    = []   # track open ports found so far for Space status
-    recent_lines  = deque(maxlen=NMAP_FATAL_CONTEXT_LINES)   # for fatal-error reporting
-
-    # ── stdout reader thread ──────────────────────────────────────────────────
-    def _read_stdout():
-        try:
-            for raw in proc.stdout:
-                line_queue.put(raw)
-        except Exception:
-            pass
-        finally:
-            line_queue.put(None)
-
-    reader = threading.Thread(target=_read_stdout, daemon=True)
-    reader.start()
-
-    # ── key watcher thread ────────────────────────────────────────────────────
-    # Runs in raw mode — catches Space / Ctrl+X / Ctrl+C as raw bytes.
-    def _watch_keys():
-        if not stdin_is_tty or not RAW_MODE_SUPPORTED:
-            return
-        fd = sys.stdin.fileno()
-        try:
-            tty.setraw(fd)
-            while not skip_flag.is_set() and not _proc_done.is_set() \
-                    and not abort_flag.is_set():
-                ready, _, _ = select.select([sys.stdin], [], [], 0.2)
-                if ready:
-                    ch = sys.stdin.read(1)
-                    if ch == "\x18":       # Ctrl+X — skip host
-                        skip_flag.set()
-                        break
-                    elif ch == "\x03":     # Ctrl+C — full abort
-                        abort_flag.set()
-                        break
-                    elif ch == " ":        # Space — request status
-                        # Nmap's own progress lines come from --stats-every;
-                        # this prints scanrunner's status block.
-                        status_requested.set()
-        except Exception:
-            pass
-        finally:
-            restore_terminal()
-
-    watcher    = threading.Thread(target=_watch_keys, daemon=True)
-    scan_start = time.time()
-    watcher.start()
-
-    # ── terminal width ────────────────────────────────────────────────────────
-    try:
-        term_width = shutil.get_terminal_size(fallback=(120, 24)).columns
-    except Exception:
-        term_width = 120
-    PREFIX_LEN = 10   # "  [MM:SS] " without ANSI codes
-
-    # ── main output loop ──────────────────────────────────────────────────────
-    while True:
-        if skip_flag.is_set() or abort_flag.is_set():
-            break
-
-        # ── Space: print clean status block ──────────────────────────────────
-        if status_requested.is_set():
-            elapsed  = int(time.time() - scan_start)
-            mins, secs = divmod(elapsed, 60)
-            _rclear()
-            _rprint()
-            _rprint(c(C.CYAN + C.BOLD,  "  ┌─ STATUS " + "─" * 40))
-            _rprint(c(C.CYAN + C.BOLD,  f"  │  Target  : ") + c(C.WHITE, target))
-            _rprint(c(C.CYAN + C.BOLD,  f"  │  Elapsed : ") + c(C.YELLOW + C.BOLD, f"{mins:02d}:{secs:02d}"))
-            _rprint(c(C.CYAN + C.BOLD,  f"  │  PID     : ") + c(C.WHITE, str(proc.pid)))
-            if open_ports:
-                _rprint(c(C.CYAN + C.BOLD, f"  │  Open    : ") +
-                        c(C.GREEN, "  ".join(open_ports)))
-            else:
-                _rprint(c(C.CYAN + C.BOLD, f"  │  Open    : ") + c(C.DIM, "none yet"))
-            _rprint(c(C.CYAN + C.BOLD,  "  └" + "─" * 50))
-            _rprint()
-            status_requested.clear()
-
-        # ── Try to get a line from nmap ───────────────────────────────────────
-        try:
-            raw_line = line_queue.get(timeout=0.2)
-        except queue.Empty:
-            if proc.poll() is not None and line_queue.empty():
-                break
-            # No nmap output right now — update live timer in place
-            elapsed = int(time.time() - scan_start)
-            mins, secs = divmod(elapsed, 60)
-            _rticker(
-                c(C.DIM, f"  [{mins:02d}:{secs:02d}]") +
-                c(C.DIM,  f"  scanning {target}") +
-                (c(C.GREEN, f"  |  {len(open_ports)} open") if open_ports else "") +
-                (c(C.DIM, "   Space=status  Ctrl+X=skip  Ctrl+C=exit")
-                 if stdin_is_tty and RAW_MODE_SUPPORTED else "")
-            )
-            continue
-
-        if raw_line is None:   # sentinel
-            break
-
-        # ── Got a line — clear ticker, then print ─────────────────────────────
-        _rclear()
-
-        line    = raw_line.rstrip()
-        if line.strip():
-            recent_lines.append(line)
-        elapsed = int(time.time() - scan_start)
-        mins, secs = divmod(elapsed, 60)
-        ts      = c(C.DIM, f"  [{mins:02d}:{secs:02d}] ")
-
-        max_content = term_width - PREFIX_LEN - 1
-        if len(line) > max_content:
-            line = line[:max_content - 3] + "..."
-
-        if not line.strip():
-            continue
-        elif re.search(r'\bopen\b', line) or "Discovered" in line:
-            # Track for Space status
-            m = re.match(r"^\s*(\d+/\w+)\s+open\s+(\S+)", line)
-            if m:
-                entry = f"{m.group(1)}/{m.group(2)}"
-                if entry not in open_ports:
-                    open_ports.append(entry)
-            _rprint(ts + c(C.GREEN, line))
-        elif re.search(r'\b(closed|filtered)\b', line):
-            _rprint(ts + c(C.DIM, line))
-        elif any(x in line for x in ["WARNING", "WARN", "failed", "Failed"]):
-            _rprint(ts + c(C.YELLOW, line))
-        elif line.startswith("Nmap scan report") or line.startswith("Host is"):
-            _rprint(ts + c(C.CYAN + C.BOLD, line))
-        elif line.startswith("Nmap done"):
-            _rprint(ts + c(C.GREEN + C.BOLD, line))
-        elif (
-    	     line.startswith("Stats:")
-    	     or "Timing:" in line
-    	     or ("%" in line and "remaining" in line)
-         ):
-            _rprint(ts + c(C.CYAN + C.BOLD, line))
-        else:
-            _rprint(ts + c(C.WHITE, line))
-
-    # ── cleanup ───────────────────────────────────────────────────────────────
-    _rclear()   # erase any live timer line before printing final output
-
-    if skip_flag.is_set() or abort_flag.is_set():
-        proc.terminate()
-        try:
-            proc.wait(timeout=3)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-        _proc_done.set()
-        reader.join(timeout=2)
-        watcher.join(timeout=1)
-        restore_terminal()
-
-        if abort_flag.is_set():
-            raise KeyboardInterrupt
-
-        _rprint(c(C.YELLOW, "─" * 70))
-        _rprint(c(C.YELLOW + C.BOLD, f"  [~] Skipped {target}."))
-        return "SKIPPED"
-
-    # Natural exit
-    try:
-        proc.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        pass
-
-    elapsed = int(time.time() - scan_start)
-    mins, secs = divmod(elapsed, 60)
-
-    _proc_done.set()
-    reader.join(timeout=2)
-    watcher.join(timeout=1)
-    restore_terminal()
-
-    _rprint(c(C.DIM, "─" * 70))
-
-    fatal = nmap_fatal_reason(recent_lines)
-    if fatal:
-        _rprint(c(C.RED + C.BOLD, "  [x] Nmap stopped with a fatal error:"))
-        for reason_line in fatal.splitlines():
-            _rprint(c(C.RED, f"      {reason_line}"))
-        return "FATAL"
-
-    # If Nmap printed output and produced a report file, treat as success
-    if proc.returncode is None:
-        return False
-
-    return proc.returncode == 0
+    status, detail = execute_nmap(target, output_file, nmap_extra, use_pn, live=True)
+    if status == 'Interrupted':
+        raise KeyboardInterrupt
+    if status == 'FATAL':
+        print(detail)
+        return 'FATAL'
+    if status in {'CLAIMED', 'SKIPPED'}:
+        return 'SKIPPED'
+    return status in {'COMPLETE', 'DOWN'}
 
 
 # Nmap refuses to run at all for configuration errors — a scan type that needs
@@ -2092,47 +2505,14 @@ def nmap_fatal_reason(lines):
 
 
 def run_nmap_quiet(target, output_file, nmap_extra, use_pn, retries):
-    """Run a non-interactive scan.
-
-    Returns (status, attempts, detail): status is COMPLETE, DOWN, FAILED or
-    FATAL. For FAILED/FATAL, Nmap's console output is saved beside the report
-    as <target>.error.log; detail explains the failure and names that log
-    (FATAL: Nmap's error lines).
-    """
-    error_log = f"{os.path.splitext(output_file)[0]}.error.log"
-    output = ""
-    reason = ""
     for attempt in range(1, retries + 2):
-        result = subprocess.run(
-            _build_nmap_command(target, output_file, nmap_extra, use_pn),
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            errors="replace",
-            check=False,
-        )
-        output = result.stdout or ""
-        fatal = nmap_fatal_reason(output.splitlines())
-        if fatal:
-            with open(error_log, "w", encoding="utf-8") as file:
-                file.write(output)
-            return "FATAL", attempt, fatal
-        status = get_file_status(output_file)
-        if result.returncode == 0 and status in {"COMPLETE", "DOWN"}:
-            if os.path.exists(error_log):
-                os.remove(error_log)   # stale log from an earlier failed run
-            return status, attempt, ""
-        reason = (REPORT_STATUS_PROBLEMS.get(status) if result.returncode == 0
-                  else f"Nmap exited with status {result.returncode}")
-    with open(error_log, "w", encoding="utf-8") as file:
-        file.write(output)
-    return "FAILED", retries + 1, f"{reason}; console output: {error_log}"
+        status, detail = execute_nmap(target, output_file, nmap_extra, use_pn)
+        if status in {'COMPLETE', 'DOWN', 'FATAL', 'Interrupted', 'CLAIMED', 'SKIPPED'}:
+            return status, attempt, detail
+        if attempt <= retries:
+            time.sleep(min(2 ** (attempt - 1), 8))
+    return 'FAILED', retries + 1, detail
 
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#  OPEN PORTS ONE-LINER  (shown after each completed scan)
-# ═══════════════════════════════════════════════════════════════════════════════
 
 def print_open_ports_oneliner(ip, filepath):
     hosts = hosts_with_open_ports(filepath)
@@ -2235,16 +2615,16 @@ def write_inventory(output_dir, targets, metadata, write_html):
 
         # Rows written by older versions lack host/hostname/version; fill blanks
         # so every row has the same shape.
-        rows = [{field: row.get(field, "") for field in INVENTORY_FIELDS} for row in rows]
-        with open(csv_path, "w", newline="", encoding="utf-8") as file:
+        rows = [{field: redact_output_text(str(row.get(field, ""))) for field in INVENTORY_FIELDS} for row in rows]
+        with atomic_text(csv_path, newline="") as file:
             writer = csv.DictWriter(file, fieldnames=INVENTORY_FIELDS)
             writer.writeheader()
-            writer.writerows(rows)
-        with open(json_path, "w", encoding="utf-8") as file:
+            writer.writerows({field: csv_safe(value) for field, value in row.items()} for row in rows)
+        with atomic_text(json_path) as file:
             json.dump(rows, file, indent=2)
 
         if write_html:
-            with open(os.path.join(output_dir, "open-ports-report.html"), "w", encoding="utf-8") as file:
+            with atomic_text(os.path.join(output_dir, "open-ports-report.html")) as file:
                 file.write(render_html_report(rows))
 
 
@@ -2383,6 +2763,11 @@ def _build_tab_command(args):
         cmd.extend(["--scope-file", args.scope_file])
     if getattr(args, "allow_intrusive", False):
         cmd.extend(["--allow-intrusive", "--authorization-note", args.authorization_note])
+    cmd.extend(["--engagement", getattr(args, "engagement", "default"),
+                "--process-timeout", str(getattr(args, "process_timeout", 600))])
+    cmd.extend(["--global-concurrency", str(getattr(args, "global_concurrency", 4)),
+                "--subnet-concurrency", str(getattr(args, "subnet_concurrency", 2)),
+                "--scan-rate", str(getattr(args, "scan_rate", 100))])
     if args.metadata_csv:
         cmd.extend(["--metadata-csv", args.metadata_csv])
     if args.html_report:
@@ -2399,15 +2784,7 @@ def _spawn_windows_terminal(command, title, cwd):
             return True
         except OSError:
             pass
-    try:
-        # cmd /k keeps the window open after the scan finishes so results
-        # stay visible; start opens it as a separate window (best effort
-        # when Windows Terminal itself is unavailable).
-        quoted = subprocess.list2cmdline(command)
-        subprocess.Popen(f'start "{title}" cmd /k "{quoted}"', cwd=cwd, shell=True)
-        return True
-    except OSError:
-        return False
+    return False
 
 
 def _spawn_macos_terminal(command, title, cwd):
@@ -2683,6 +3060,9 @@ def previously_completed(ips, output_dir, completed_file):
     does not count, even though completed.txt still lists the target. A report
     whose host was down never counts, so --resume tries it again.
     """
+    if ACTIVE_STORE is not None:
+        pn = has_nmap_option(ACTIVE_CONFIG.get("options", []), "-Pn")
+        return {target for target in ips if ACTIVE_STORE.completed(target, pn)}
     last_completed = {}
     for stamp, target in read_log_entries(completed_file):
         last_completed[target] = max(stamp, last_completed.get(target, datetime.min))
@@ -2870,9 +3250,36 @@ def print_diff(old_dir, new_dir):
     return 0
 
 
+def review_run_history(directory):
+    path = Path(directory).resolve() / ".scanrunner" / "scanrunner.sqlite3"
+    if not path.is_file():
+        raise ValueError("No durable run database found in this directory")
+    database = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)
+    database.row_factory = sqlite3.Row
+    try:
+        runs = [dict(row) for row in database.execute("SELECT * FROM runs ORDER BY started")]
+        jobs = [dict(row) for row in database.execute("SELECT * FROM jobs ORDER BY started")]
+    finally:
+        database.close()
+    verifier = object.__new__(RunStore)
+    verifier.directory = str(path.parent.parent)
+    for job in jobs:
+        job["evidence_integrity"] = "Verified" if verifier.verify_job(job) else "Missing, corrupt, or unfinished"
+        job.pop("manifest", None)
+    return {"runs": runs, "jobs": jobs}
+
+
 def handle_review_commands():
     """Run --status / --diff, which review output folders and never scan."""
     arguments = [arg for arg in sys.argv[1:] if arg != "--no-color"]
+    if arguments and arguments[0] in {"--history", "--verify-evidence"}:
+        values = [value for value in arguments[1:] if value != "--json"]
+        if len(values) > 1:
+            raise ValueError("usage: scanrunner --history/--verify-evidence [DIR] [--json]")
+        result = review_run_history(values[0] if values else "results")
+        print(json.dumps(result, indent=2))
+        invalid = any(job["evidence_integrity"] != "Verified" for job in result["jobs"])
+        sys.exit(1 if arguments[0] == "--verify-evidence" and invalid else 0)
     if not arguments or arguments[0] not in {"--status", "--diff"}:
         return
     global COLORS_ENABLED
@@ -2923,17 +3330,37 @@ def preview_scan(args, targets, scope, exclusions):
                "output_directory": os.path.abspath(args.output), "scope": scope if scope is not None else targets,
                "exclusions": exclusions, "commands": commands,
                "dns": "Deferred until execution", "authorization": args.authorization_note or "Explicit target selection"}
+    preview["traffic_limits"] = {"aggregate_nmap_pps": args.scan_rate,
+                                 "global_workers": args.global_concurrency, "per_subnet_workers": args.subnet_concurrency}
     print(json.dumps(preview, indent=2))
 
 
+def bounded_futures(executor, function, targets, limit):
+    pending = {}
+    iterator = iter(targets)
+    for _ in range(limit):
+        target = next(iterator, None)
+        if target is not None:
+            pending[executor.submit(function, target)] = target
+    while pending:
+        ready, _ = wait(pending, return_when=FIRST_COMPLETED)
+        for future in ready:
+            yield future, pending.pop(future)
+            target = next(iterator, None)
+            if target is not None:
+                pending[executor.submit(function, target)] = target
+
+
 def main():
-    global COLORS_ENABLED, ACTIVE_SCOPE
+    global COLORS_ENABLED, ACTIVE_SCOPE, ACTIVE_STORE, ACTIVE_CONFIG
     _save_terminal()
     handle_topic_help()
     handle_review_commands()
     args = parse_args()
     COLORS_ENABLED = not args.no_color
     ACTIVE_SCOPE = None
+    ACTIVE_STORE = None
+    ACTIVE_CONFIG = {}
     if args.split is None and args.split_size is None:
         requested = [normalize_target(args.ip)] if args.ip else load_targets(args.file)
         if args.nxc and args.nxc not in {"smb", "rdp", "ldap", "winrm", "ssh", "ftp", "mssql", "wmi", "vnc", "nfs"}:
@@ -2952,6 +3379,15 @@ def main():
                 extras = extras[:-2]
             args.nmap_extra = extras
         validate_scan_options(args.nmap_extra, bool(args.nxc), args.allow_intrusive)
+        if not args.nxc:
+            ceiling = max(1, args.scan_rate // args.global_concurrency)
+            for index, option in enumerate(args.nmap_extra):
+                if option.split("=", 1)[0] in {"--min-rate", "--max-rate"}:
+                    value = option.split("=", 1)[1] if "=" in option else args.nmap_extra[index + 1]
+                    if not 0 < float(value) <= ceiling:
+                        raise ValueError(f"Per-process rate must be between 0 and {ceiling} PPS")
+            if not has_nmap_option(args.nmap_extra, "--max-rate"):
+                args.nmap_extra.extend(["--max-rate", str(ceiling)])
         if "null-auth" in args.nxc_queries or "all" in args.nxc_queries:
             if not args.allow_intrusive:
                 raise ValueError("Anonymous authentication requires explicit authorization and --allow-intrusive")
@@ -2963,6 +3399,29 @@ def main():
         except ValueError as error:
             print(f"scanrunner: Refusing targets outside --scope-file or invalid authorization: {error}", file=sys.stderr)
             raise SystemExit(1)
+        binary = check_nxc_installed() if args.nxc else shutil.which("nmap")
+        if binary is None:
+            check_nmap_installed()
+        version_result = subprocess.run([binary, "--version"], capture_output=True, timeout=10, check=False)
+        version_text = (version_result.stdout + version_result.stderr).decode("utf-8", errors="replace").strip()
+        if version_result.returncode != 0 or not version_text:
+            raise ValueError("Cannot determine scanner version for a reproducible run")
+        ACTIVE_CONFIG = {"tool": "nxc" if args.nxc else "nmap", "tool_version": version_text,
+                         "binary": os.path.abspath(binary), "binary_sha256": file_sha256(binary),
+                         "scope": ACTIVE_SCOPE.scope, "dns_answers": ACTIVE_SCOPE.answers,
+                         "exclusions": exclusions, "profile": args.profile or "custom", "profile_version": 1,
+                         "options": args.nmap_extra, "timeout": args.process_timeout,
+                         "engagement": args.engagement, "skip_ping": args.skip_ping,
+                         "nxc_queries": args.nxc_queries, "protocol": args.nxc,
+                         "allow_intrusive": args.allow_intrusive, "authorization_note": args.authorization_note}
+        ACTIVE_CONFIG.update(global_workers=args.global_concurrency, subnet_workers=args.subnet_concurrency,
+                             scan_rate=args.scan_rate, parallel=args.parallel,
+                             targets=requested,
+                             skip_no_ping=args.skip_no_ping, retries=args.retries,
+                             scope_version=hashlib.sha256(json.dumps(sorted(ACTIVE_SCOPE.scope)).encode()).hexdigest())
+        ACTIVE_STORE = RunStore(args.output, ACTIVE_CONFIG)
+        CANCEL_EVENT.clear()
+        signal.signal(signal.SIGINT, request_cancel)
     banner()
 
     if args.split is not None or args.split_size is not None:
@@ -3091,6 +3550,7 @@ def main():
         write_reports()
         print_summary(ips, completed_file, skipped_file, rescanned_file,
                       not_ping_file, failed_file, output_dir, since=run_started)
+        ACTIVE_STORE.end("Finished; review per-job outcomes and coverage")
 
     # ── Resume — single prompt ────────────────────────────────────────────────
     completed_ips = set()
@@ -3135,9 +3595,11 @@ def main():
                     f"— enter a number from 2 to {total_pending}."))
             sys.exit(1)
         _launch_tabs(args, pending_ips, output_dir, args.tabs)
+        ACTIVE_STORE.end("Delegated; review child run outcomes")
         return
 
     if offer_terminal_tabs(args, pending_ips, output_dir):
+        ACTIVE_STORE.end("Delegated; review child run outcomes")
         return
 
     print(c(C.CYAN + C.BOLD, f"  [*] {total_pending} IP(s) queued.\n"))
@@ -3162,7 +3624,7 @@ def main():
         # (and logged, so reconciliation accounts for it); anything else is scanned.
         parallel_targets = []
         for ip in pending_ips:
-            if get_file_status(report_path(ip)) == "COMPLETE":
+            if ACTIVE_STORE.completed(ip, has_nmap_option(args.nmap_extra, "-Pn")):
                 log_to_file(skipped_file, ip)
                 print(c(C.YELLOW, f"  [~] Skipped {ip} (complete report already exists)"))
             else:
@@ -3174,7 +3636,7 @@ def main():
         def scan_one(target):
             # Once one scan hits a fatal Nmap error, queued scans are not started.
             # They get no log entry, so the summary reports them as unaccounted.
-            if fatal_seen.is_set():
+            if fatal_seen.is_set() or CANCEL_EVENT.is_set():
                 return "CANCELLED", 0, ""
             if needs_wrapper_ping(target) and not ping_host(target):
                 return "NO_PING", 0, ""
@@ -3186,9 +3648,7 @@ def main():
 
         fatal_detail = None
         with ThreadPoolExecutor(max_workers=args.parallel) as executor:
-            futures = {executor.submit(scan_one, ip): ip for ip in parallel_targets}
-            for future in as_completed(futures):
-                ip = futures[future]
+            for future, ip in bounded_futures(executor, scan_one, parallel_targets, args.parallel):
                 status, attempts, detail = future.result()
                 if attempts > 1:
                     log_to_file(retry_file, ip)
@@ -3249,7 +3709,7 @@ def main():
                 display_existing_scan(output_file)
                 while True:
                     if args.yes:
-                        ch = "s" if get_file_status(output_file) == "COMPLETE" else "r"
+                        ch = "s" if ACTIVE_STORE.completed(ip, has_nmap_option(args.nmap_extra, "-Pn")) else "r"
                     else:
                         _show_menu()
                         ch = safe_input(c(C.BOLD, "  Choice -> ")).lower()
@@ -3264,8 +3724,8 @@ def main():
                         action = "scan"
                         break
                     elif ch == "m":
-                        log_to_file(completed_file, ip)
-                        print(c(C.GREEN, f"  [+] Marked {ip} as complete."))
+                        log_to_file(skipped_file, ip)
+                        print(c(C.YELLOW, f"  [~] Acknowledged {ip}; completion requires validated scanner evidence."))
                         action = "skip"
                         break
                     elif ch == "v":
@@ -3402,5 +3862,13 @@ if __name__ == "__main__":
     try:
         main()
     except (ValueError, OSError) as error:
+        if ACTIVE_STORE is not None:
+            ACTIVE_STORE.end("Failed; review preserved partial evidence")
         print(f"scanrunner: error: {error}", file=sys.stderr)
         sys.exit(1)
+    except KeyboardInterrupt:
+        CANCEL_EVENT.set()
+        if ACTIVE_STORE is not None:
+            ACTIVE_STORE.end("Interrupted")
+        restore_terminal()
+        sys.exit(130)
