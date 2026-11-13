@@ -8,6 +8,8 @@ The runtime network is internal, with fixed addresses and no published service p
 
 Ground truth combines effective Samba settings and independent SMB1/SMB2 wire negotiation. Configurations, binary and script hashes, image identities, raw negotiation bytes, scanner artifacts and execution failures are retained in the workflow artifact. Each execution uses a fresh evidence directory. The benchmark uses production normalization and rules, including abstentions for missing usable scanner evidence.
 
+Each scan is also checked through the CLI evidence verifier and stored-observations view. The run fails if persisted endpoint associations, candidate-only status or rule outcomes disagree with ground truth, even when the raw-output benchmark passes.
+
 Local reproduction requires Docker Compose and a writable, fresh output directory. Set `LAB_OUTPUT_DIR`, `LAB_UID` and `LAB_GID` for the local environment, then run the workflow's Compose commands from the repository root. The workflow records the resolved runtime versions because package repositories and base-image tags can change.
 
 Eight cases measure these four Samba configurations and two supported SMB checks. Broader service, operating-system, authentication and network conditions require additional independently verified cases. A successful run also executes the gated real localhost Nmap regression.

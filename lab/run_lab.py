@@ -12,6 +12,7 @@ from negotiate import probe
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import scanrunner as backend
 from scanrunner_benchmark import benchmark
+from scanrunner_findings import evaluate
 
 PROFILES = [
     ("nt1-optional", "172.29.77.10", True, False),
@@ -66,7 +67,25 @@ def main():
         print(f"SCANNED {profile} exit={execution.returncode}", flush=True)
         (output / (profile + "-cli-stdout.bin")).write_bytes(execution.stdout)
         (output / (profile + "-cli-stderr.bin")).write_bytes(execution.stderr)
-        runs.append({"profile": profile, "argv": argv, "exit_code": execution.returncode})
+        integrity = subprocess.run([sys.executable, "-B", "scanrunner.py", "--verify-evidence", str(destination), "--json"],
+                                   capture_output=True, timeout=30)
+        observations = subprocess.run([sys.executable, "-B", "scanrunner.py", "observations", "--output", str(destination)],
+                                      capture_output=True, timeout=30)
+        (output / (profile + "-integrity-stdout.bin")).write_bytes(integrity.stdout)
+        (output / (profile + "-integrity-stderr.bin")).write_bytes(integrity.stderr)
+        (output / (profile + "-observations-stdout.bin")).write_bytes(observations.stdout)
+        (output / (profile + "-observations-stderr.bin")).write_bytes(observations.stderr)
+        stored = json.loads(observations.stdout) if observations.returncode == 0 else []
+        expected = {"smb-protocols": "Potential" if smbv1 else "Not observed",
+                    "smb2-security-mode": "Not observed" if signing else "Potential"}
+        matched = (len(stored) == 2 and {item["check_id"] for item in stored} == set(expected)
+                   and all(item["addresses"] == [address] and item["port"] == 445 and item["transport"] == "tcp"
+                           and item["verification_status"] == "Needs Verification"
+                           and evaluate(item)["outcome"] == expected[item["check_id"]] for item in stored))
+        print(f"PERSISTED {profile} observations_match={matched} integrity_exit={integrity.returncode}", flush=True)
+        runs.append({"profile": profile, "argv": argv, "exit_code": execution.returncode,
+                     "integrity_exit_code": integrity.returncode, "observations_exit_code": observations.returncode,
+                     "stored_observations_match": matched})
         (output / "executions.json").write_text(json.dumps(runs, indent=2), encoding="utf-8")
         artifacts = list((destination / ".scanrunner" / "runs").glob("*/*/nmap.xml"))
         if len(artifacts) == 1:
@@ -92,7 +111,8 @@ def main():
                                  "-k", "RealNmapTests", "-v"], capture_output=True, env=environment, timeout=210)
     (output / "localhost-test-stdout.bin").write_bytes(local_test.stdout)
     (output / "localhost-test-stderr.bin").write_bytes(local_test.stderr)
-    failed = any(run["exit_code"] != 0 for run in runs) or local_test.returncode != 0
+    failed = any(run["exit_code"] != 0 or run["integrity_exit_code"] != 0 or run["observations_exit_code"] != 0
+                 or not run["stored_observations_match"] for run in runs) or local_test.returncode != 0
     failed = failed or any(score["false_positive"] or score["false_negative"] or score["abstained_positive"]
                            or score["abstained_negative"] for score in result["per_check"].values())
     return int(failed)
