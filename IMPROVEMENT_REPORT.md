@@ -1,5 +1,13 @@
 # ScanRunner improvement and integration report
 
+## Live detection follow-up, 2026-11-13
+
+Two isolated Docker runtimes now provide independently labeled live measurements for the two supported SMB checks. Final results are 16/16 correct assessments, zero false positives, zero false negatives and zero abstentions across Nmap 7.93/Samba 4.17.12 and Nmap 7.95/Samba 4.22.11. Both live localhost tests, eight stored-observation checks and eight evidence-integrity checks passed. These figures describe the controlled matrix. General field accuracy remains unmeasured. See [LIVE_ACCURACY_REPORT.md](LIVE_ACCURACY_REPORT.md).
+
+The pilots found real compatibility defects in compact and colon-separated SMB dialect names. Rule revision 3 handles the observed aliases, canonicalizes contradiction checks and retains inconclusive outcomes for unsupported evidence. Original scanner XML and independent proof bytes are regression fixtures. Previously confirmed findings require renewed analyst review before final export under the revised rule.
+
+CI run 43403567993 passed all six jobs at 06625e3. Current regression results are 181 passes and one gated live-test skip, with 26/26 independent safety guards passing. P0 acceptance review is complete at 12/12. P1 remains 9/14, with evidence-contract completeness, remaining protocol rules, finding-template fields, optional XLSX export and profile expansion still open. The detailed live report lists next accuracy upgrades, correlated-sample limitations, actual NetExec validation, cross-service coverage, durable evidence retention and runtime pinning. Earlier progress sections below retain their historical results.
+
 ## NetExec completion and authorization follow-up
 
 CI run 43245521164 passed all six jobs at 43c3e62. A subsequent guard persists per-target evidence outcomes before derived CSV/JSON export, keeping execution facts available after export failure. Local verification now records 175 passes and one gated live-Nmap skip. The final persistence change requires its own matrix run.

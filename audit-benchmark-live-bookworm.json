@@ -1,0 +1,274 @@
+{
+  "schema_version": 1,
+  "dataset_kind": "controlled-lab",
+  "dataset_sha256": "9ff7a3c5d5794ba3736b461ddbbccae644ebf66165aee08f840ba4a1e3fd9166",
+  "parser_version": "1",
+  "cases": [
+    {
+      "id": "nt1-optional-smb-protocols",
+      "check_id": "smb-protocols",
+      "expected": "positive",
+      "actual": "Potential",
+      "category": "true_positive",
+      "reason": "Explicit supported negotiation output",
+      "artifact_sha256": "ed1b4566dd01a450f50bc58517474f5dcdf675e18c84bf139bf9787be67d5ddc",
+      "scanner_versions_in_artifact": [
+        "7.93"
+      ]
+    },
+    {
+      "id": "nt1-optional-smb2-security-mode",
+      "check_id": "smb2-security-mode",
+      "expected": "positive",
+      "actual": "Potential",
+      "category": "true_positive",
+      "reason": "Explicit supported negotiation output",
+      "artifact_sha256": "ed1b4566dd01a450f50bc58517474f5dcdf675e18c84bf139bf9787be67d5ddc",
+      "scanner_versions_in_artifact": [
+        "7.93"
+      ]
+    },
+    {
+      "id": "nt1-required-smb-protocols",
+      "check_id": "smb-protocols",
+      "expected": "positive",
+      "actual": "Potential",
+      "category": "true_positive",
+      "reason": "Explicit supported negotiation output",
+      "artifact_sha256": "b89c15f83212e7ede49d31bf7e409fea7a03cd0f8cd06078a5cda890b43bdb38",
+      "scanner_versions_in_artifact": [
+        "7.93"
+      ]
+    },
+    {
+      "id": "nt1-required-smb2-security-mode",
+      "check_id": "smb2-security-mode",
+      "expected": "negative",
+      "actual": "Not observed",
+      "category": "true_negative",
+      "reason": "Explicit supported negotiation output",
+      "artifact_sha256": "b89c15f83212e7ede49d31bf7e409fea7a03cd0f8cd06078a5cda890b43bdb38",
+      "scanner_versions_in_artifact": [
+        "7.93"
+      ]
+    },
+    {
+      "id": "smb2-optional-smb-protocols",
+      "check_id": "smb-protocols",
+      "expected": "negative",
+      "actual": "Not observed",
+      "category": "true_negative",
+      "reason": "Explicit supported negotiation output",
+      "artifact_sha256": "67ace69716554fcc2e437bf02c513d44c93115147cc61c15b5dbb04f1e3b71ef",
+      "scanner_versions_in_artifact": [
+        "7.93"
+      ]
+    },
+    {
+      "id": "smb2-optional-smb2-security-mode",
+      "check_id": "smb2-security-mode",
+      "expected": "positive",
+      "actual": "Potential",
+      "category": "true_positive",
+      "reason": "Explicit supported negotiation output",
+      "artifact_sha256": "67ace69716554fcc2e437bf02c513d44c93115147cc61c15b5dbb04f1e3b71ef",
+      "scanner_versions_in_artifact": [
+        "7.93"
+      ]
+    },
+    {
+      "id": "smb2-required-smb-protocols",
+      "check_id": "smb-protocols",
+      "expected": "negative",
+      "actual": "Not observed",
+      "category": "true_negative",
+      "reason": "Explicit supported negotiation output",
+      "artifact_sha256": "caf4ba2beb1622648a22e9ef22d58abf7fbe4e29ab3c983e48a024f8814f75d9",
+      "scanner_versions_in_artifact": [
+        "7.93"
+      ]
+    },
+    {
+      "id": "smb2-required-smb2-security-mode",
+      "check_id": "smb2-security-mode",
+      "expected": "negative",
+      "actual": "Not observed",
+      "category": "true_negative",
+      "reason": "Explicit supported negotiation output",
+      "artifact_sha256": "caf4ba2beb1622648a22e9ef22d58abf7fbe4e29ab3c983e48a024f8814f75d9",
+      "scanner_versions_in_artifact": [
+        "7.93"
+      ]
+    }
+  ],
+  "rule_version": "3",
+  "implementation_sha256": {
+    "scanrunner.py": "66b5abd107c978293ab9da2b593ef4f7c9c83f3bb43bc83afd9deef4ce89ea8d",
+    "scanrunner_assessment.py": "8fa931a69fd3b76c57b5fbfd8b172998ef57f5d506fa347b4e475b38a8cbf9cc",
+    "scanrunner_findings.py": "ca5d9d871c814dae285ce112cbfa9abbfc575f346aea99e958436cb66e801d5e",
+    "scanrunner_benchmark.py": "911c264b124b2fe86cda858c2269fb7583d2f5c0be8eeb5311ef25e364937375"
+  },
+  "per_check": {
+    "smb-protocols": {
+      "true_positive": 2,
+      "false_positive": 0,
+      "true_negative": 2,
+      "false_negative": 0,
+      "abstained_positive": 0,
+      "abstained_negative": 0,
+      "precision": {
+        "value": 1.0,
+        "numerator": 2,
+        "denominator": 2,
+        "wilson_95": [
+          0.34237195288961925,
+          1
+        ]
+      },
+      "operational_recall": {
+        "value": 1.0,
+        "numerator": 2,
+        "denominator": 2,
+        "wilson_95": [
+          0.34237195288961925,
+          1
+        ]
+      },
+      "false_positive_rate": {
+        "value": 0.0,
+        "numerator": 0,
+        "denominator": 2,
+        "wilson_95": [
+          0,
+          0.6576280471103807
+        ]
+      },
+      "operational_false_positive_rate": {
+        "value": 0.0,
+        "numerator": 0,
+        "denominator": 2,
+        "wilson_95": [
+          0,
+          0.6576280471103807
+        ]
+      },
+      "determinate_accuracy": {
+        "value": 1.0,
+        "numerator": 4,
+        "denominator": 4,
+        "wilson_95": [
+          0.5100999795960008,
+          1
+        ]
+      },
+      "correct_assessment_rate": {
+        "value": 1.0,
+        "numerator": 4,
+        "denominator": 4,
+        "wilson_95": [
+          0.5100999795960008,
+          1
+        ]
+      },
+      "negative_abstention_rate": {
+        "value": 0.0,
+        "numerator": 0,
+        "denominator": 2,
+        "wilson_95": [
+          0,
+          0.6576280471103807
+        ]
+      },
+      "coverage": {
+        "value": 1.0,
+        "numerator": 4,
+        "denominator": 4,
+        "wilson_95": [
+          0.5100999795960008,
+          1
+        ]
+      }
+    },
+    "smb2-security-mode": {
+      "true_positive": 2,
+      "false_positive": 0,
+      "true_negative": 2,
+      "false_negative": 0,
+      "abstained_positive": 0,
+      "abstained_negative": 0,
+      "precision": {
+        "value": 1.0,
+        "numerator": 2,
+        "denominator": 2,
+        "wilson_95": [
+          0.34237195288961925,
+          1
+        ]
+      },
+      "operational_recall": {
+        "value": 1.0,
+        "numerator": 2,
+        "denominator": 2,
+        "wilson_95": [
+          0.34237195288961925,
+          1
+        ]
+      },
+      "false_positive_rate": {
+        "value": 0.0,
+        "numerator": 0,
+        "denominator": 2,
+        "wilson_95": [
+          0,
+          0.6576280471103807
+        ]
+      },
+      "operational_false_positive_rate": {
+        "value": 0.0,
+        "numerator": 0,
+        "denominator": 2,
+        "wilson_95": [
+          0,
+          0.6576280471103807
+        ]
+      },
+      "determinate_accuracy": {
+        "value": 1.0,
+        "numerator": 4,
+        "denominator": 4,
+        "wilson_95": [
+          0.5100999795960008,
+          1
+        ]
+      },
+      "correct_assessment_rate": {
+        "value": 1.0,
+        "numerator": 4,
+        "denominator": 4,
+        "wilson_95": [
+          0.5100999795960008,
+          1
+        ]
+      },
+      "negative_abstention_rate": {
+        "value": 0.0,
+        "numerator": 0,
+        "denominator": 2,
+        "wilson_95": [
+          0,
+          0.6576280471103807
+        ]
+      },
+      "coverage": {
+        "value": 1.0,
+        "numerator": 4,
+        "denominator": 4,
+        "wilson_95": [
+          0.5100999795960008,
+          1
+        ]
+      }
+    }
+  },
+  "limitations": "Metrics describe the supplied labeled dataset. Ground-truth provenance is supplied by its reviewer. Tool execution coverage and environment representativeness require independent review. Positive abstentions count against operational recall."
+}

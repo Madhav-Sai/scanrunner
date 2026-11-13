@@ -1,8 +1,21 @@
 # Resume ScanRunner work
 
-The user explicitly stopped work to save context on 2026-11-12. Resume only when requested. The requested final completion marker is `MADHAV`, after the agreed work is complete. Full completion has not been established.
+The user resumed work on 2026-11-13 and requested visible running status. The requested final completion marker is `MADHAV`, after the agreed work is complete. Full roadmap completion has not been established.
 
-## Saved state
+## Current state after live Docker verification
+
+- Work remains on `D:\scanrunner`, branch `main`. Commit/push and controlled lab testing are authorized. The local Windows host has no Docker/WSL installation. Docker runs on owned GitHub Actions Ubuntu runners.
+- Application source at `06625e3` passed all six jobs in CI run `43403567993`. Regression results are 181 passes and one gated live-Nmap skip, plus 26/26 independent safety guards. Quality checks include 18 Python sources and the installer archive.
+- Final live Bookworm run `43403568737` and Trixie run `43403574409` both passed. Together they assessed 16 labeled cases across four Samba policies per runtime and two SMB checks. Counts are 8 TP, 8 TN, zero FP, zero FN and zero abstentions. Eight CLI scans, eight evidence-integrity checks, eight persisted-observation checks and both real localhost Nmap tests passed.
+- Nmap 7.93/Samba 4.17.12 and Nmap 7.95/Samba 4.22.11 are measured. Independent wire negotiation plus effective Samba configuration established labels. General field accuracy beyond the small correlated SMB matrix remains unmeasured.
+- Pilot runs exposed compact and colon-separated dialect aliases. Rule revision 3 handles observed aliases and canonicalized contradictions. Exact original XML/proof bytes are committed under `tests/fixtures/live-smb-7.93` and `tests/fixtures/live-smb-7.95`. Previously confirmed findings need renewed analyst review before final export under the new rule.
+- `LIVE_ACCURACY_REPORT.md`, `audit-live-smb-runs.json` and both `audit-benchmark-live-*.json` hold the report and measurements. Complete downloads, including failed pilots, are retained locally under ignored `lab-evidence/RUN_ID` directories. Workflow artifacts expire after 14 days.
+- Formal P0 acceptance review closes P0-04/06/08. Accepted backlog is 21/39, comprising P0 12/12 and P1 9/14. Remaining P1 tasks are 04/05/07/10/12. P2/P3 retain 13 future-upgrade entries. No further rule or integration was accepted by the SMB lab work.
+- The workflow `.github/workflows/controlled-lab.yml` is manual and supports either Debian runtime. It uses internal networks, no published ports, dropped scanner capabilities, fresh evidence directories, explicit scope and project-scoped cleanup. Repeated runs are excluded from the 16-case final sample.
+
+The sections below preserve the pre-lab resumption history and original implementation plan. Their older counts and pending lab statements are superseded by this section.
+
+## Saved state before the live lab
 
 - Work in `D:\scanrunner` on `main`, remote `https://github.com/Madhav-Sai/scanrunner.git`.
 - Python is `C:\Users\MadhavaRaoR\AppData\Local\Programs\Python\Python312\python.exe`.

@@ -1,0 +1,651 @@
+{
+  "conclusion": "success",
+  "databaseId": 43403567993,
+  "headSha": "06625e393d6fa10ac0d64845aa3cecb934adb043",
+  "jobs": [
+    {
+      "completedAt": "2026-11-13T09:44:26Z",
+      "conclusion": "success",
+      "databaseId": 131812198571,
+      "name": "regression (windows-latest, 3.10)",
+      "startedAt": "2026-11-13T09:42:36Z",
+      "status": "completed",
+      "steps": [
+        {
+          "completedAt": "2026-11-13T09:42:38Z",
+          "conclusion": "success",
+          "name": "Set up job",
+          "number": 1,
+          "startedAt": "2026-11-13T09:42:37Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:42:43Z",
+          "conclusion": "success",
+          "name": "Run actions/checkout@v4",
+          "number": 2,
+          "startedAt": "2026-11-13T09:42:38Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:43:34Z",
+          "conclusion": "success",
+          "name": "Run actions/setup-python@v5",
+          "number": 3,
+          "startedAt": "2026-11-13T09:42:43Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:43:35Z",
+          "conclusion": "success",
+          "name": "Run python scripts/check_quality.py",
+          "number": 4,
+          "startedAt": "2026-11-13T09:43:34Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:44:19Z",
+          "conclusion": "success",
+          "name": "Run python -B -m unittest discover -s tests -v",
+          "number": 5,
+          "startedAt": "2026-11-13T09:43:35Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:44:21Z",
+          "conclusion": "success",
+          "name": "Run python -B scripts/audit_safety.py",
+          "number": 6,
+          "startedAt": "2026-11-13T09:44:19Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:44:21Z",
+          "conclusion": "success",
+          "name": "Run python -B scanrunner.py benchmark tests/fixtures/detection-benchmark/dataset.json --destination synthetic-benchmark-ci.json",
+          "number": 7,
+          "startedAt": "2026-11-13T09:44:21Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:44:22Z",
+          "conclusion": "success",
+          "name": "Run python scanrunner.py --help",
+          "number": 8,
+          "startedAt": "2026-11-13T09:44:21Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:44:22Z",
+          "conclusion": "success",
+          "name": "Run python install.py --help",
+          "number": 9,
+          "startedAt": "2026-11-13T09:44:22Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:44:23Z",
+          "conclusion": "success",
+          "name": "Post Run actions/setup-python@v5",
+          "number": 17,
+          "startedAt": "2026-11-13T09:44:22Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:44:25Z",
+          "conclusion": "success",
+          "name": "Post Run actions/checkout@v4",
+          "number": 18,
+          "startedAt": "2026-11-13T09:44:23Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:44:25Z",
+          "conclusion": "success",
+          "name": "Complete job",
+          "number": 19,
+          "startedAt": "2026-11-13T09:44:25Z",
+          "status": "completed"
+        }
+      ],
+      "url": "https://github.com/Madhav-Sai/scanrunner/actions/runs/43403567993/job/131812198571"
+    },
+    {
+      "completedAt": "2026-11-13T09:43:46Z",
+      "conclusion": "success",
+      "databaseId": 131812198987,
+      "name": "regression (macos-latest, 3.10)",
+      "startedAt": "2026-11-13T09:42:37Z",
+      "status": "completed",
+      "steps": [
+        {
+          "completedAt": "2026-11-13T09:42:40Z",
+          "conclusion": "success",
+          "name": "Set up job",
+          "number": 1,
+          "startedAt": "2026-11-13T09:42:38Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:42:42Z",
+          "conclusion": "success",
+          "name": "Run actions/checkout@v4",
+          "number": 2,
+          "startedAt": "2026-11-13T09:42:40Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:43:15Z",
+          "conclusion": "success",
+          "name": "Run actions/setup-python@v5",
+          "number": 3,
+          "startedAt": "2026-11-13T09:42:42Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:43:15Z",
+          "conclusion": "success",
+          "name": "Run python scripts/check_quality.py",
+          "number": 4,
+          "startedAt": "2026-11-13T09:43:15Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:43:40Z",
+          "conclusion": "success",
+          "name": "Run python -B -m unittest discover -s tests -v",
+          "number": 5,
+          "startedAt": "2026-11-13T09:43:15Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:43:40Z",
+          "conclusion": "success",
+          "name": "Run python -B scripts/audit_safety.py",
+          "number": 6,
+          "startedAt": "2026-11-13T09:43:40Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:43:40Z",
+          "conclusion": "success",
+          "name": "Run python -B scanrunner.py benchmark tests/fixtures/detection-benchmark/dataset.json --destination synthetic-benchmark-ci.json",
+          "number": 7,
+          "startedAt": "2026-11-13T09:43:40Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:43:41Z",
+          "conclusion": "success",
+          "name": "Run python scanrunner.py --help",
+          "number": 8,
+          "startedAt": "2026-11-13T09:43:40Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:43:41Z",
+          "conclusion": "success",
+          "name": "Run python install.py --help",
+          "number": 9,
+          "startedAt": "2026-11-13T09:43:41Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:43:41Z",
+          "conclusion": "success",
+          "name": "Post Run actions/setup-python@v5",
+          "number": 17,
+          "startedAt": "2026-11-13T09:43:41Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:43:42Z",
+          "conclusion": "success",
+          "name": "Post Run actions/checkout@v4",
+          "number": 18,
+          "startedAt": "2026-11-13T09:43:41Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:43:43Z",
+          "conclusion": "success",
+          "name": "Complete job",
+          "number": 19,
+          "startedAt": "2026-11-13T09:43:42Z",
+          "status": "completed"
+        }
+      ],
+      "url": "https://github.com/Madhav-Sai/scanrunner/actions/runs/43403567993/job/131812198987"
+    },
+    {
+      "completedAt": "2026-11-13T09:43:32Z",
+      "conclusion": "success",
+      "databaseId": 131812198997,
+      "name": "regression (ubuntu-latest, 3.10)",
+      "startedAt": "2026-11-13T09:42:37Z",
+      "status": "completed",
+      "steps": [
+        {
+          "completedAt": "2026-11-13T09:42:38Z",
+          "conclusion": "success",
+          "name": "Set up job",
+          "number": 1,
+          "startedAt": "2026-11-13T09:42:38Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:42:40Z",
+          "conclusion": "success",
+          "name": "Run actions/checkout@v4",
+          "number": 2,
+          "startedAt": "2026-11-13T09:42:38Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:42:46Z",
+          "conclusion": "success",
+          "name": "Run actions/setup-python@v5",
+          "number": 3,
+          "startedAt": "2026-11-13T09:42:40Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:42:46Z",
+          "conclusion": "success",
+          "name": "Run python scripts/check_quality.py",
+          "number": 4,
+          "startedAt": "2026-11-13T09:42:46Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:43:26Z",
+          "conclusion": "success",
+          "name": "Run python -B -m unittest discover -s tests -v",
+          "number": 5,
+          "startedAt": "2026-11-13T09:42:46Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:43:27Z",
+          "conclusion": "success",
+          "name": "Run python -B scripts/audit_safety.py",
+          "number": 6,
+          "startedAt": "2026-11-13T09:43:26Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:43:27Z",
+          "conclusion": "success",
+          "name": "Run python -B scanrunner.py benchmark tests/fixtures/detection-benchmark/dataset.json --destination synthetic-benchmark-ci.json",
+          "number": 7,
+          "startedAt": "2026-11-13T09:43:27Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:43:28Z",
+          "conclusion": "success",
+          "name": "Run python scanrunner.py --help",
+          "number": 8,
+          "startedAt": "2026-11-13T09:43:27Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:43:28Z",
+          "conclusion": "success",
+          "name": "Run python install.py --help",
+          "number": 9,
+          "startedAt": "2026-11-13T09:43:28Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:43:28Z",
+          "conclusion": "success",
+          "name": "Post Run actions/setup-python@v5",
+          "number": 17,
+          "startedAt": "2026-11-13T09:43:28Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:43:28Z",
+          "conclusion": "success",
+          "name": "Post Run actions/checkout@v4",
+          "number": 18,
+          "startedAt": "2026-11-13T09:43:28Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:43:28Z",
+          "conclusion": "success",
+          "name": "Complete job",
+          "number": 19,
+          "startedAt": "2026-11-13T09:43:28Z",
+          "status": "completed"
+        }
+      ],
+      "url": "https://github.com/Madhav-Sai/scanrunner/actions/runs/43403567993/job/131812198997"
+    },
+    {
+      "completedAt": "2026-11-13T09:43:39Z",
+      "conclusion": "success",
+      "databaseId": 131812199002,
+      "name": "regression (windows-latest, 3.12)",
+      "startedAt": "2026-11-13T09:42:37Z",
+      "status": "completed",
+      "steps": [
+        {
+          "completedAt": "2026-11-13T09:42:39Z",
+          "conclusion": "success",
+          "name": "Set up job",
+          "number": 1,
+          "startedAt": "2026-11-13T09:42:38Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:42:44Z",
+          "conclusion": "success",
+          "name": "Run actions/checkout@v4",
+          "number": 2,
+          "startedAt": "2026-11-13T09:42:39Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:42:45Z",
+          "conclusion": "success",
+          "name": "Run actions/setup-python@v5",
+          "number": 3,
+          "startedAt": "2026-11-13T09:42:44Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:42:47Z",
+          "conclusion": "success",
+          "name": "Run python scripts/check_quality.py",
+          "number": 4,
+          "startedAt": "2026-11-13T09:42:45Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:43:31Z",
+          "conclusion": "success",
+          "name": "Run python -B -m unittest discover -s tests -v",
+          "number": 5,
+          "startedAt": "2026-11-13T09:42:47Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:43:32Z",
+          "conclusion": "success",
+          "name": "Run python -B scripts/audit_safety.py",
+          "number": 6,
+          "startedAt": "2026-11-13T09:43:31Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:43:33Z",
+          "conclusion": "success",
+          "name": "Run python -B scanrunner.py benchmark tests/fixtures/detection-benchmark/dataset.json --destination synthetic-benchmark-ci.json",
+          "number": 7,
+          "startedAt": "2026-11-13T09:43:32Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:43:33Z",
+          "conclusion": "success",
+          "name": "Run python scanrunner.py --help",
+          "number": 8,
+          "startedAt": "2026-11-13T09:43:33Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:43:34Z",
+          "conclusion": "success",
+          "name": "Run python install.py --help",
+          "number": 9,
+          "startedAt": "2026-11-13T09:43:33Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:43:34Z",
+          "conclusion": "success",
+          "name": "Post Run actions/setup-python@v5",
+          "number": 17,
+          "startedAt": "2026-11-13T09:43:34Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:43:36Z",
+          "conclusion": "success",
+          "name": "Post Run actions/checkout@v4",
+          "number": 18,
+          "startedAt": "2026-11-13T09:43:34Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:43:37Z",
+          "conclusion": "success",
+          "name": "Complete job",
+          "number": 19,
+          "startedAt": "2026-11-13T09:43:36Z",
+          "status": "completed"
+        }
+      ],
+      "url": "https://github.com/Madhav-Sai/scanrunner/actions/runs/43403567993/job/131812199002"
+    },
+    {
+      "completedAt": "2026-11-13T09:43:07Z",
+      "conclusion": "success",
+      "databaseId": 131812199031,
+      "name": "regression (ubuntu-latest, 3.12)",
+      "startedAt": "2026-11-13T09:42:37Z",
+      "status": "completed",
+      "steps": [
+        {
+          "completedAt": "2026-11-13T09:42:39Z",
+          "conclusion": "success",
+          "name": "Set up job",
+          "number": 1,
+          "startedAt": "2026-11-13T09:42:38Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:42:40Z",
+          "conclusion": "success",
+          "name": "Run actions/checkout@v4",
+          "number": 2,
+          "startedAt": "2026-11-13T09:42:39Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:42:40Z",
+          "conclusion": "success",
+          "name": "Run actions/setup-python@v5",
+          "number": 3,
+          "startedAt": "2026-11-13T09:42:40Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:42:40Z",
+          "conclusion": "success",
+          "name": "Run python scripts/check_quality.py",
+          "number": 4,
+          "startedAt": "2026-11-13T09:42:40Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:43:01Z",
+          "conclusion": "success",
+          "name": "Run python -B -m unittest discover -s tests -v",
+          "number": 5,
+          "startedAt": "2026-11-13T09:42:40Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:43:02Z",
+          "conclusion": "success",
+          "name": "Run python -B scripts/audit_safety.py",
+          "number": 6,
+          "startedAt": "2026-11-13T09:43:01Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:43:02Z",
+          "conclusion": "success",
+          "name": "Run python -B scanrunner.py benchmark tests/fixtures/detection-benchmark/dataset.json --destination synthetic-benchmark-ci.json",
+          "number": 7,
+          "startedAt": "2026-11-13T09:43:02Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:43:02Z",
+          "conclusion": "success",
+          "name": "Run python scanrunner.py --help",
+          "number": 8,
+          "startedAt": "2026-11-13T09:43:02Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:43:02Z",
+          "conclusion": "success",
+          "name": "Run python install.py --help",
+          "number": 9,
+          "startedAt": "2026-11-13T09:43:02Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:43:02Z",
+          "conclusion": "success",
+          "name": "Post Run actions/setup-python@v5",
+          "number": 17,
+          "startedAt": "2026-11-13T09:43:02Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:43:03Z",
+          "conclusion": "success",
+          "name": "Post Run actions/checkout@v4",
+          "number": 18,
+          "startedAt": "2026-11-13T09:43:02Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:43:03Z",
+          "conclusion": "success",
+          "name": "Complete job",
+          "number": 19,
+          "startedAt": "2026-11-13T09:43:03Z",
+          "status": "completed"
+        }
+      ],
+      "url": "https://github.com/Madhav-Sai/scanrunner/actions/runs/43403567993/job/131812199031"
+    },
+    {
+      "completedAt": "2026-11-13T09:43:18Z",
+      "conclusion": "success",
+      "databaseId": 131812199036,
+      "name": "regression (macos-latest, 3.12)",
+      "startedAt": "2026-11-13T09:42:37Z",
+      "status": "completed",
+      "steps": [
+        {
+          "completedAt": "2026-11-13T09:42:38Z",
+          "conclusion": "success",
+          "name": "Set up job",
+          "number": 1,
+          "startedAt": "2026-11-13T09:42:37Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:42:41Z",
+          "conclusion": "success",
+          "name": "Run actions/checkout@v4",
+          "number": 2,
+          "startedAt": "2026-11-13T09:42:38Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:42:41Z",
+          "conclusion": "success",
+          "name": "Run actions/setup-python@v5",
+          "number": 3,
+          "startedAt": "2026-11-13T09:42:41Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:42:42Z",
+          "conclusion": "success",
+          "name": "Run python scripts/check_quality.py",
+          "number": 4,
+          "startedAt": "2026-11-13T09:42:41Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:43:13Z",
+          "conclusion": "success",
+          "name": "Run python -B -m unittest discover -s tests -v",
+          "number": 5,
+          "startedAt": "2026-11-13T09:42:42Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:43:13Z",
+          "conclusion": "success",
+          "name": "Run python -B scripts/audit_safety.py",
+          "number": 6,
+          "startedAt": "2026-11-13T09:43:13Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:43:13Z",
+          "conclusion": "success",
+          "name": "Run python -B scanrunner.py benchmark tests/fixtures/detection-benchmark/dataset.json --destination synthetic-benchmark-ci.json",
+          "number": 7,
+          "startedAt": "2026-11-13T09:43:13Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:43:14Z",
+          "conclusion": "success",
+          "name": "Run python scanrunner.py --help",
+          "number": 8,
+          "startedAt": "2026-11-13T09:43:13Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:43:14Z",
+          "conclusion": "success",
+          "name": "Run python install.py --help",
+          "number": 9,
+          "startedAt": "2026-11-13T09:43:14Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:43:14Z",
+          "conclusion": "success",
+          "name": "Post Run actions/setup-python@v5",
+          "number": 17,
+          "startedAt": "2026-11-13T09:43:14Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:43:15Z",
+          "conclusion": "success",
+          "name": "Post Run actions/checkout@v4",
+          "number": 18,
+          "startedAt": "2026-11-13T09:43:14Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-11-13T09:43:15Z",
+          "conclusion": "success",
+          "name": "Complete job",
+          "number": 19,
+          "startedAt": "2026-11-13T09:43:15Z",
+          "status": "completed"
+        }
+      ],
+      "url": "https://github.com/Madhav-Sai/scanrunner/actions/runs/43403567993/job/131812199036"
+    }
+  ],
+  "status": "completed",
+  "url": "https://github.com/Madhav-Sai/scanrunner/actions/runs/43403567993"
+}

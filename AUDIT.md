@@ -1,5 +1,11 @@
 # ScanRunner baseline audit
 
+## Live Docker verification, 2026-11-13
+
+The resumed audit measured both supported SMB checks against four owned Samba policies on each of two Debian runtimes. Final results are 16/16 correct assessments with zero false positives, false negatives or abstentions. Eight normal CLI scans, eight evidence-integrity checks, eight persisted-observation checks and two real localhost Nmap tests passed. Independent labels combine effective server configuration and raw wire negotiation. Two dialect-format compatibility defects discovered during the pilots are repaired and protected by exact live captures. See LIVE_ACCURACY_REPORT.md and audit-live-smb-runs.json for methods, hashes, run links and limitations.
+
+CI run 43403567993 passed all six jobs at 06625e3, with 181 regression passes and one gated live test per job, all 26 safety guards and quality/packaging checks. The live test passes separately inside both Docker runtimes. The formal P0 acceptance review is recorded in the master plan. General real-world accuracy beyond this small controlled SMB sample remains unmeasured. Earlier numerical audit sections retain their historical evidence.
+
 Date: 2026-11-12. Source audit of checkout version 1.3.0. No scanner executed.
 
 ## Architecture and compatibility baseline
