@@ -5,3 +5,5 @@ __pycache__/
 /fixture-tests.log
 /regression-tests.log
 /verification-*.log
+/lab-output/
+/lab-evidence/

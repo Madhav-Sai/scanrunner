@@ -1,0 +1,50 @@
+name: Controlled Docker detection lab
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  smb-lab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      COMPOSE_PROJECT_NAME: scanrunner_lab_${{ github.run_id }}
+      LAB_IMAGE_TAG: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Prepare owned lab evidence directories
+        run: |
+          lab_output="$GITHUB_WORKSPACE/lab-output/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          mkdir -p "$lab_output/server-proofs"/{nt1-optional,nt1-required,smb2-optional,smb2-required}
+          echo "LAB_OUTPUT_DIR=$lab_output" >> "$GITHUB_ENV"
+          echo "LAB_UID=$(id -u)" >> "$GITHUB_ENV"
+          echo "LAB_GID=$(id -g)" >> "$GITHUB_ENV"
+      - name: Build scanner and Samba runtime images
+        run: docker compose -f lab/compose.yaml build
+      - name: Start isolated targets
+        run: docker compose -f lab/compose.yaml up -d --wait nt1-optional nt1-required smb2-optional smb2-required
+      - name: Record runtime identities
+        if: always()
+        run: |
+          docker compose -f lab/compose.yaml config > "$LAB_OUTPUT_DIR/compose-resolved.yaml"
+          docker compose -f lab/compose.yaml ps --all --format json > "$LAB_OUTPUT_DIR/containers.json"
+          docker network inspect "${COMPOSE_PROJECT_NAME}_lab" > "$LAB_OUTPUT_DIR/network.json"
+          python3 -c "import json,os,pathlib; assert json.loads((pathlib.Path(os.environ['LAB_OUTPUT_DIR'])/'network.json').read_text())[0]['Internal']"
+          docker image inspect "scanrunner-lab-samba:$LAB_IMAGE_TAG" "scanrunner-lab-runner:$LAB_IMAGE_TAG" > "$LAB_OUTPUT_DIR/images.json"
+      - name: Verify ground truth and measure live detections
+        run: docker compose -f lab/compose.yaml run --rm runner
+      - name: Preserve container logs
+        if: always()
+        run: docker compose -f lab/compose.yaml logs --no-color > "$LAB_OUTPUT_DIR/container-logs.txt"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: controlled-smb-lab-${{ github.run_id }}
+          path: ${{ env.LAB_OUTPUT_DIR }}/
+          include-hidden-files: true
+          retention-days: 14
+      - name: Remove owned lab containers and network
+        if: always()
+        run: docker compose -f lab/compose.yaml down --volumes --remove-orphans

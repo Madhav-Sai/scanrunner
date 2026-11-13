@@ -1,0 +1,90 @@
+x-target: &target
+  image: scanrunner-lab-samba:${LAB_IMAGE_TAG:-local}
+  build:
+    context: .
+    dockerfile: Dockerfile
+    target: target
+  init: true
+  mem_limit: 256m
+  pids_limit: 128
+  security_opt:
+    - no-new-privileges:true
+  healthcheck:
+    test: ["CMD", "python3", "-c", "import socket; socket.create_connection(('127.0.0.1',445),2).close()"]
+    interval: 2s
+    timeout: 3s
+    retries: 30
+
+services:
+  nt1-optional:
+    <<: *target
+    environment:
+      LAB_PROFILE: nt1-optional
+      MIN_PROTOCOL: NT1
+      SIGNING: auto
+    volumes:
+      - ${LAB_OUTPUT_DIR:-../lab-output}/server-proofs/nt1-optional:/proof
+    networks:
+      lab:
+        ipv4_address: 172.29.77.10
+  nt1-required:
+    <<: *target
+    environment:
+      LAB_PROFILE: nt1-required
+      MIN_PROTOCOL: NT1
+      SIGNING: mandatory
+    volumes:
+      - ${LAB_OUTPUT_DIR:-../lab-output}/server-proofs/nt1-required:/proof
+    networks:
+      lab:
+        ipv4_address: 172.29.77.11
+  smb2-optional:
+    <<: *target
+    environment:
+      LAB_PROFILE: smb2-optional
+      MIN_PROTOCOL: SMB2_02
+      SIGNING: auto
+    volumes:
+      - ${LAB_OUTPUT_DIR:-../lab-output}/server-proofs/smb2-optional:/proof
+    networks:
+      lab:
+        ipv4_address: 172.29.77.12
+  smb2-required:
+    <<: *target
+    environment:
+      LAB_PROFILE: smb2-required
+      MIN_PROTOCOL: SMB2_02
+      SIGNING: mandatory
+    volumes:
+      - ${LAB_OUTPUT_DIR:-../lab-output}/server-proofs/smb2-required:/proof
+    networks:
+      lab:
+        ipv4_address: 172.29.77.13
+  runner:
+    image: scanrunner-lab-runner:${LAB_IMAGE_TAG:-local}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runner
+    user: "${LAB_UID:-1000}:${LAB_GID:-1000}"
+    mem_limit: 768m
+    pids_limit: 128
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      PYTHONUTF8: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    volumes:
+      - ..:/workspace:ro
+      - ${LAB_OUTPUT_DIR:-../lab-output}:/evidence
+    networks:
+      lab:
+        ipv4_address: 172.29.77.20
+
+networks:
+  lab:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.29.77.0/24

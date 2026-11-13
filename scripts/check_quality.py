@@ -7,7 +7,7 @@ import io
 
 ROOT = Path(__file__).resolve().parents[1]
 failures = []
-sources = [ROOT / "scanrunner.py", *ROOT.glob("scanrunner_*.py"), ROOT / "install.py", *ROOT.glob("tests/*.py")]
+sources = [ROOT / "scanrunner.py", *ROOT.glob("scanrunner_*.py"), ROOT / "install.py", *ROOT.glob("tests/*.py"), *ROOT.glob("lab/*.py")]
 for path in sources:
     with tokenize.open(path) as source:
         text = source.read()
