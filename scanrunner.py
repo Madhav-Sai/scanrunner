@@ -43,7 +43,7 @@ from urllib.parse import urlsplit
 from scanrunner_lib.scanrunner_help import GUIDES, MENU
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 
-__version__ = "1.5.0"
+__version__ = "1.6.0"
 EVIDENCE_PARSER_VERSION = "4"
 
 # When an interactive run has at least this many pending targets, offer to
@@ -744,7 +744,7 @@ class RunStore:
         except ValueError:
             claim_target = target.lower().rstrip(".")
         subnets = set()
-        subjects = self.config.get("targets", self.config.get("scope", [])) if self.config.get("tool") == "nxc" else [target]
+        subjects = self.config.get("targets", self.config.get("scope", [])) if self.config.get("tool") in {"nxc", "pingme"} else [target]
         for subject in subjects:
             resolved = self.config.get("dns_answers", {}).get(subject, [subject])
             for address in resolved:
@@ -1536,6 +1536,7 @@ def completion_script(shell):
     options.extend("--" + name for name in OPTION_HELP if "--" + name not in options)
     from scanrunner_lib.scanrunner_help import GUIDES
     options.extend(name for name in ["guide", "help", "--whats-new", *GUIDES] if name not in options)
+    options.extend(["--pingme-script", "--tcp-ports"])
     profiles = " ".join(sorted(SCAN_PROFILES))
     protocols = "smb rdp ldap winrm ssh ftp mssql wmi vnc nfs"
     queries = " ".join(sorted(NXC_QUERY_CHOICES))
@@ -1551,7 +1552,7 @@ def completion_script(shell):
         --profile|--template|--preset) COMPREPLY=( $(compgen -W "{profiles}" -- "$cur") ); return ;;
         -nxc|--nxc|--nxc-native-help) COMPREPLY=( $(compgen -W "{protocols}" -- "$cur") ); return ;;
         --nxc-query) COMPREPLY=( $(compgen -W "{queries}" -- "$cur") ); return ;;
-        -f|--file|--exclude-file|--scope-file|--metadata-csv) COMPREPLY=( $(compgen -f -- "$cur") ); return ;;
+        -f|--file|--exclude-file|--scope-file|--metadata-csv|--pingme-script) COMPREPLY=( $(compgen -f -- "$cur") ); return ;;
         -o|--output|--status|--diff) COMPREPLY=( $(compgen -d -- "$cur") ); return ;;
     esac
     COMPREPLY=( $(compgen -W "{words}" -- "$cur") )
@@ -3701,11 +3702,14 @@ def main():
     if len(sys.argv) > 1 and sys.argv[1] == "guide":
         from scanrunner_lib.scanrunner_help import guide
         sys.exit(guide(sys.argv[2:]))
-    if len(sys.argv) == 2 and sys.argv[1] in {"engagement", "asset", "import", "findings", "retest", "benchmark", "probe", "plugin", "attest", "schedule", "advisory", "template"}:
+    if len(sys.argv) == 2 and sys.argv[1] in {"engagement", "asset", "import", "findings", "retest", "benchmark", "probe", "plugin", "attest", "schedule", "advisory", "template", "discover"}:
         sys.argv.append("--help")
     if len(sys.argv) > 1 and sys.argv[1] in {"share", "attest", "trends", "rules", "schedule", "advisory", "template", "tui"}:
         from scanrunner_lib import scanrunner_operations
         sys.exit(scanrunner_operations.cli(sys.argv[1:], sys.modules[__name__]))
+    if len(sys.argv) > 1 and sys.argv[1] == "discover":
+        from scanrunner_lib import scanrunner_discovery
+        sys.exit(scanrunner_discovery.cli(sys.argv[2:], sys.modules[__name__]))
     if len(sys.argv) > 1 and sys.argv[1] == "plugin":
         from scanrunner_lib import scanrunner_plugins
         sys.exit(scanrunner_plugins.cli(sys.argv[2:], sys.modules[__name__]))
@@ -3773,7 +3777,7 @@ def main():
             validate_nxc_queries(args.nxc, args.nxc_queries)
         if args.nxc == "smb" or "null-auth" in args.nxc_queries:
             if not args.allow_intrusive:
-                raise ValueError("NetExec SMB can attempt null and Guest logons; require --allow-intrusive and --authorization-note")
+                raise ValueError("NetExec SMB can attempt null and Guest logons, including OS/hostname/SMBv1 queries. For an authorized target, add --allow-intrusive --authorization-note AUTH_REF. NetExec has not started.")
         if args.nxc:
             args.nmap_extra = effective_nxc_options(args.nmap_extra, args.nxc_queries, args.nxc)
         if args.dry_run:

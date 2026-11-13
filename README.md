@@ -38,6 +38,10 @@ under `docs/archive/`. See [documentation](docs/README.md) for a short index.
 
 ## Start with one complete assessment
 
+Want to check reachability first? The optional [PingMe integration](docs/assessment-workflows.md#pingme-host-discovery)
+provides `scanrunner discover`. It keeps no-response and probe-error results
+separate and prints a preview command for a later scan.
+
 ```bash
 scanrunner guide
 scanrunner --whats-new

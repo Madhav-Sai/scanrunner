@@ -15,7 +15,7 @@ from pathlib import Path
 
 APP = "scanrunner"
 SCRIPT = "scanrunner.py"
-MODULES = ("scanrunner_assessment.py", "scanrunner_findings.py", "scanrunner_benchmark.py", "scanrunner_exports.py", "scanrunner_rules.py", "scanrunner_probes.py", "scanrunner_plugins.py", "scanrunner_operations.py", "scanrunner_workspace.py", "scanrunner_help.py")
+MODULES = ("scanrunner_assessment.py", "scanrunner_findings.py", "scanrunner_benchmark.py", "scanrunner_exports.py", "scanrunner_rules.py", "scanrunner_probes.py", "scanrunner_plugins.py", "scanrunner_operations.py", "scanrunner_workspace.py", "scanrunner_help.py", "scanrunner_discovery.py")
 COMPANIONS = tuple("scanrunner_lib/" + name for name in ("__init__.py", *MODULES))
 MARKER_START = "# >>> scanrunner completion >>>"
 MARKER_END = "# <<< scanrunner completion <<<"
@@ -37,10 +37,11 @@ OPTIONS = [
     "-v", "--version",
 ]
 OPTIONS.extend([
+    "--pingme-script", "--tcp-ports",
     "--dry-run", "--json", "--engagement", "--process-timeout", "--global-concurrency",
     "--subnet-concurrency", "--scan-rate", "--allow-intrusive", "--authorization-note",
     "--history", "--verify-evidence", "--scope-snapshot",
-    "--whats-new", "guide", "help", "engagement", "inventory", "observations", "findings", "report", "retest", "import", "asset",
+    "--whats-new", "guide", "help", "discover", "engagement", "inventory", "observations", "findings", "report", "retest", "import", "asset",
     "probe", "plugin", "rules", "trends", "share", "attest", "schedule", "advisory", "template", "tui", "benchmark",
 ])
 
@@ -232,7 +233,7 @@ def bash_completion() -> str:
         --profile|--template|--preset) COMPREPLY=( $(compgen -W "{' '.join(PROFILES)}" -- "$cur") ); return ;;
         -nxc|--nxc) COMPREPLY=( $(compgen -W "{' '.join(NXC_PROTOCOLS)}" -- "$cur") ); return ;;
         --nxc-query) COMPREPLY=( $(compgen -W "{' '.join(NXC_QUERIES)}" -- "$cur") ); return ;;
-        -f|--file|--exclude-file|--scope-file|--metadata-csv) COMPREPLY=( $(compgen -f -- "$cur") ); return ;;
+        -f|--file|--exclude-file|--scope-file|--metadata-csv|--pingme-script) COMPREPLY=( $(compgen -f -- "$cur") ); return ;;
         -o|--output|--status|--diff) COMPREPLY=( $(compgen -d -- "$cur") ); return ;;
     esac
     COMPREPLY=( $(compgen -W "{' '.join(OPTIONS)}" -- "$cur") )

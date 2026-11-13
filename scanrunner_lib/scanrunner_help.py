@@ -9,6 +9,8 @@ import sys
 from pathlib import Path
 
 GUIDES = {
+    "discover": ("Use optional PingMe to check scoped host reachability before an assessment.", "Download PingMe 3.3.0 separately and prepare scope.txt containing authorized literal IPs/CIDRs.",
+        ["discover --target 127.0.0.1 --scope-file scope.txt --pingme-script ../PingMe/pingme.py --authorization-note OWNED_LAB --dry-run", "discover --target 127.0.0.1 --scope-file scope.txt --pingme-script ../PingMe/pingme.py --authorization-note OWNED_LAB -o results", "plugin observations -o results"], "Review reachable, no-response and probe-error results. The output supplies a preview command for a later scan. No response does not prove offline."),
     "engagement": ("Save the authorized scope and owner for an assessment.", "Prepare scope.txt with the IPs or CIDRs you may assess.",
         ["engagement create --name lab --scope-file scope.txt -o results", "engagement show -o results"], "Use the same --engagement lab and -o results on later commands."),
     "inventory": ("See discovered hosts, ports and their exact observed states.", "Run a scan or import an existing Nmap XML file first.",
@@ -56,6 +58,7 @@ New here? Follow one assessment from preview to report
   scanrunner --whats-new
 
 Scan and check progress
+  scanrunner discover --help                   Optional PingMe host discovery
   scanrunner -i IP --scope-file scope.txt --profile safe-baseline --dry-run
   scanrunner --list-templates                  Choose a scan profile
   scanrunner --status results                  See completion and failures
@@ -236,7 +239,7 @@ def guide(argv):
         print("5. Execute due jobs when authorized\n   " + command_line(["schedule", "run-due", "--execute", "--engagement", "lab", "-o", args.output]))
         print("   Scope, expiry and input hashes are checked again. Use schedule list to inspect results.")
     else:
-        tasks = {"reports": ["inventory", "report"], "optional-tools": ["plugin", "probe"], "privacy": ["attest", "share"], "schedule": ["engagement", "schedule"]}
+        tasks = {"reports": ["inventory", "report"], "optional-tools": ["discover", "plugin", "probe"], "privacy": ["attest", "share"], "schedule": ["engagement", "schedule"]}
         for command in tasks[args.task]:
             purpose, before, examples, after = GUIDES[command]
             print(purpose + "\n" + before)
@@ -258,6 +261,10 @@ def guide(argv):
 
 def whats_new(version):
     return f"""New in ScanRunner {version}
+
+Optional host discovery
+  Scoped PingMe 3.3.0 integration       scanrunner discover --help
+  Reachable / no response / probe error, preserved evidence, manual scan handoff.
 
 Understand and review results
   New protocol evidence contracts       scanrunner rules

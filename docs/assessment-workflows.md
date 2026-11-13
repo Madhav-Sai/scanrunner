@@ -1,6 +1,54 @@
 # Assessment workflows
 
-ScanRunner 1.5 adds protocol evidence contracts, optional scanners and local assessment operations. Use `python scanrunner.py COMMAND --help` for each command. Authorization, scope, exclusions and evidence integrity apply before scanning. Findings require explicit analyst review before confirmation.
+ScanRunner provides protocol evidence contracts, optional scanners and local assessment operations. Version 1.6 adds optional PingMe host discovery. Use `python scanrunner.py COMMAND --help` for each command. Authorization, scope, exclusions and evidence integrity apply before scanning. Findings require explicit analyst review before confirmation.
+
+## PingMe host discovery
+
+[PingMe](https://github.com/Madhav-Sai/PingMe) is Madhav's independent ICMP/TCP
+reachability scanner. Install or clone it separately; ScanRunner does not download
+or install it automatically. The supported contract is PingMe **3.3.0**, build
+`reliable-cross-platform` (reviewed source commit `1ffcaac9d1735fdc1092e87473b4840bc6044c5c`).
+The integration uses its system `ping` backend; `ping` must be available.
+
+1. Prepare `scope.txt` with your authorized literal IPs/CIDRs.
+2. Preview discovery. Replace `YOUR_IP` and the PingMe path:
+
+   ```bash
+   scanrunner discover --target YOUR_IP --scope-file scope.txt --pingme-script ../PingMe/pingme.py --authorization-note AUTH_REF --dry-run
+   ```
+
+3. Remove `--dry-run` to run. Use `--file targets.txt` for a list or repeat
+   `--target`. Expansion is bounded to 256 addresses. Hostnames are deliberately
+   excluded from this integration to avoid DNS-derived target changes.
+4. Read `REACHABLE`, `NO RESPONSE` and `PROBE ERROR` separately. Results preserve
+   the selected script hash, tool version, argv, raw JSON, stdout/stderr and exact
+   source rows inside the private assessment evidence store.
+5. If reachable hosts exist, the output prints a copyable **preview** of a later
+   baseline scan. Review it and run it explicitly. Discovery never starts Nmap.
+
+`--tcp-ports 22,80,443` optionally adds up to 16 TCP connect checks when ICMP is
+blocked. Defaults are ICMP only, four workers, up to five ICMP attempts per host,
+one-second timeout and a 10/s ICMP rate. TCP checks have a separate rate; this is
+not a global packet ceiling. A 600-second process deadline bounds the run.
+
+```bash
+scanrunner discover --target 127.0.0.1 --scope-file scope.txt --pingme-script ../PingMe/pingme.py --authorization-note OWNED_LAB --tcp-ports 443 --json
+scanrunner plugin observations -o results
+scanrunner --verify-evidence results
+```
+
+No response does **not** prove a host is offline. Probe errors remain unassessed;
+missing, duplicate, contradictory or off-scope output is rejected. Discovery does
+not create vulnerabilities, claim confirmed service/OS identification, overwrite
+inventory, or silently skip original targets. Review original-scope coverage
+before choosing to scan only the reachable list. Exit 0 means associated discovery
+results were captured (including no-response cases); probe errors return 1.
+
+PingMe user configuration and history are disabled and its environment is
+isolated. DNS/ARP discovery, notifications, uploads, automatic downloads,
+traceroute, Wake-on-LAN, watch and metrics-server modes are not enabled by this
+integration. Those remain independent PingMe workflows requiring separate scope
+and privacy review.
 
 ## Protocol controls
 

@@ -1,3 +1,13 @@
+# scanrunner v1.6.0
+
+Adds optional scoped PingMe 3.3.0 host discovery through `scanrunner discover`.
+Choose explicit literal IPs/CIDRs or a target file, preview the bounded argv and
+run using a separately installed `pingme.py`. Reachability, no-response and probe
+errors stay separate. Raw evidence and script identity are preserved. The output
+offers a preview command for a later Nmap assessment; no scan chaining or
+automatic findings are enabled. Help, beginner guidance and shell completion
+include the new command. See [PingMe discovery](docs/assessment-workflows.md#pingme-host-discovery).
+
 # scanrunner v1.5.0
 
 Download `scanrunner-1.5.0.zip` from the GitHub release and extract the entire
