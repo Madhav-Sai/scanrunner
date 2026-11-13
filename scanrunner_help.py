@@ -217,6 +217,7 @@ def guide(argv):
         print("3. Create a candidate and copy its finding id\n   " + command_line(["findings", "create", "--observation", "OBSERVATION_ID", "-o", args.output]))
         print("4. Inspect the candidate\n   " + command_line(["findings", "list", "-o", args.output]))
         print("5. Independently verify the condition, affected endpoint and practical impact. Write your reviewed description, impact, remediation and references in a details JSON file.")
+        print("   Optional CVSS scoring requires cvss_vector (a CVSS 3.1 base vector) and cvss_justification. The score is checked from your selected metrics.")
         print("6. Read review options before making the explicit analyst decision\n   scanrunner findings --help")
         print("   " + command_line(["findings", "review", "--finding", "FINDING_ID", "--status", "Confirmed", "--reviewer", "YOUR_NAME", "--rationale", "REVIEW_REASON", "--details", "reviewed-details.json", "--approve-preconditions-and-impact", "-o", args.output]))
         print("   Confirmation requires --approve-preconditions-and-impact and a named reviewer. Imports also require --trust-import-origin.")

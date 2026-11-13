@@ -335,3 +335,27 @@ class FindingWorkflowTests(unittest.TestCase):
         self.assertEqual(findings.evaluate(observation)["reason"], "Contradictory dialect evidence")
         alternate["key"] = "3:1:1"
         self.assertEqual(findings.evaluate(observation)["reason"], "Contradictory dialect evidence")
+
+    def test_cvss_is_only_from_reviewed_valid_metrics_and_rejects_inconsistent_score(self):
+        vector = "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
+        self.assertEqual(findings.cvss31_base(vector), 9.8)
+        self.assertEqual(findings.cvss31_base(vector.replace("/S:U", "/S:C")), 10.0)
+        self.assertEqual(findings.cvss31_base(vector.replace("/C:H/I:H/A:H", "/C:N/I:N/A:N")), 0.0)
+        for malformed in (vector + "/E:F", vector.replace("AV:N", "AV:X"), vector.replace("/AC:L", "/AV:N")):
+            with self.assertRaises(ValueError):
+                findings.cvss31_base(malformed)
+        _, observation = self.imported()
+        finding = self.command("findings", "create", "--observation", observation["id"])
+        details = self.root / "cvss.json"
+        content = {"cvss_vector": vector, "cvss_justification": "Synthetic manually reviewed metric selection"}
+        details.write_text(json.dumps(content))
+        review = ["findings", "review", "--finding", finding["id"], "--status", "Needs Verification", "--reviewer", "Synthetic Analyst",
+                  "--rationale", "Synthetic scoring test", "--details", str(details)]
+        with self.assertRaisesRegex(ValueError, "explicit approval"):
+            self.command(*review)
+        result = self.command(*review, "--approve-preconditions-and-impact")
+        self.assertEqual(result["cvss_score"], 9.8)
+        self.assertEqual(result["status"], "Needs Verification")
+        details.write_text(json.dumps({**content, "cvss_score": 5.0}))
+        with self.assertRaisesRegex(ValueError, "disagrees"):
+            self.command(*review, "--approve-preconditions-and-impact")

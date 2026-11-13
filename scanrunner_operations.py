@@ -62,6 +62,7 @@ def trend_report(directory, engagement, group_by):
         group = record["metadata"].get(group_by, "Not determined") if group_by else "All assets"
         series.append({"asset_id": record["asset_id"], "run_id": record["run_id"], "observed_at": record["observed_at"],
                        "group": group, "source_tool": record["source_tool"], "execution_outcome": record["execution_outcome"],
+                       "confidence": "Unverified observation",
                        "imported": record["imported"], "port_states": [{"port": service["port"], "transport": service["transport"], "state": service["state"]}
                                                                   for service in record["services"]],
                        "open_services": sum(service["state"] == "open" for service in record["services"]),

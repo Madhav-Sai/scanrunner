@@ -37,6 +37,8 @@ python scanrunner.py inventory --output results --format xlsx --destination resu
 
 Technical reports include inventory, reviewed findings, coverage, run metadata and retests. Workbook text cells preserve their text type and hostile formula strings stay text. Fields without evidence display `Not determined` or `Not tested`. Earlier confirmed findings require renewed analyst review when the rule revision changes.
 
+An analyst may supply `cvss_vector` and `cvss_justification` in reviewed finding details with `--approve-preconditions-and-impact`. Supported scoring uses complete CVSS 3.1 base metrics. The application validates the vector and computes its score. A supplied `cvss_score` must agree with that calculation. Scoring requires your applicability judgment and does not come from port or banner detection. [FIRST CVSS 3.1 specification](https://www.first.org/cvss/v3.1/specification-document)
+
 ```bash
 python scanrunner.py attest keygen --key results/.scanrunner/report.key
 python scanrunner.py share --output results --key results/.scanrunner/report.key --preview

@@ -66,7 +66,7 @@ SCAN_PROFILES = {
     "safe-baseline": ["-sT", "--top-ports", "100", "--version-light"],
     "ssh-audit": ["-sV", "-p", "22", "--script", "ssh2-enum-algos"],
     "dns-audit": ["-sU", "-p", "53", "-sV"],
-    "ad-discovery": ["-sT", "-sV", "-p", "53,88,135,139,389,445,464,636,3268,3269"],
+    "ad-discovery": ["-sT", "-p", "53,88,135,139,389,445,464,636,3268,3269"],
     "tls-audit": ["-sV", "-p", "443,8443", "--script", "ssl-cert,ssl-enum-ciphers"],
 }
 

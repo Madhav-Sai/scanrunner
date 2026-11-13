@@ -309,7 +309,7 @@ python3 scanrunner.py -f alive.txt -o results -sV -T4
 #### Aggressive Assessment
 
 ```bash
-python3 scanrunner.py -f alive.txt -o results -sV -A -vv
+python3 scanrunner.py -f alive.txt -o results -sV -vv
 ```
 
 #### Full Port Scan
@@ -321,7 +321,7 @@ python3 scanrunner.py -f alive.txt -o results -sS -p- -T4
 #### TLS Configuration Observations
 
 ```bash
-python3 scanrunner.py -f alive.txt -o results --script ssl-enum-ciphers -sV
+python3 scanrunner.py -f alive.txt -o results --script ssl-enum-ciphers -sV --allow-intrusive --authorization-note AUTH_REF
 ```
 
 #### Active Directory Assessment
@@ -613,22 +613,27 @@ python3 scanrunner.py --list-templates
 | `ssl-ciphers` | `-sV --script ssl-enum-ciphers` | TLS cipher observations |
 | `smb-audit` | `-sV --script smb-os-discovery,smb-protocols,smb-security-mode,smb2-security-mode` | SMB observations requiring explicit anonymous-session authorization |
 | `rdp-audit` | `-sV --script rdp-enum-encryption,rdp-ntlm-info` | RDP observations |
+| `safe-baseline` | `-sT --top-ports 100 --version-light` | TCP connect inventory |
+| `ssh-audit` | `-sV -p 22 --script ssh2-enum-algos` | SSH algorithm offers |
+| `dns-audit` | `-sU -p 53 -sV` | DNS service inventory |
+| `ad-discovery` | `-sT -p 53,88,135,139,389,445,464,636,3268,3269` | AD-associated port inventory |
+| `tls-audit` | `-sV -p 443,8443 --script ssl-cert,ssl-enum-ciphers` | TLS certificate and cipher observations |
 | `udp` | `-sU -sV --top-ports 100` | Common UDP services |
 
 The broad `vuln` preset is retired because its script category includes unreviewed checks.
 Choose a supported profile or explicitly select approved scripts. `full-fast` no longer
 expands `-A` or sets a minimum traffic rate. `web` and `web-enum` provide service inventory
 without HTTP NSE enumeration. These compatibility changes are also displayed in profile
-notes. `smb-audit` requires both `--allow-intrusive` and `--authorization-note`.
+notes. `smb-audit`, `ssl-ciphers` and `tls-audit` require both `--allow-intrusive` and `--authorization-note`.
 
 ```bash
 # Equivalent aliases; use whichever reads best in your workflow.
-python3 scanrunner.py -f targets.txt --template ssl-ciphers
+python3 scanrunner.py -f targets.txt --template ssl-ciphers --allow-intrusive --authorization-note AUTH_REF
 python3 scanrunner.py -f targets.txt --preset full-fast --host-timeout 10m
 python3 scanrunner.py -f targets.txt --template full-fast -vv
 
 # No preset: pass raw Nmap arguments as before.
-python3 scanrunner.py -f targets.txt -sV -A -Pn --min-rate 200 -p-
+python3 scanrunner.py -f targets.txt -sV -O -Pn -p- --scan-rate 100
 ```
 
 ### Non-interactive and Parallel Scans
@@ -796,7 +801,7 @@ Use `-ok` (or `--skip-no-ping`) when you want scanrunner to keep the normal
 wrapper ping check but automatically skip targets that do not respond.
 
 ```bash
-scanrunner -f file.txt -o nmap -ok -sV -A
+scanrunner -f file.txt -o nmap -ok -sV
 ```
 
 Behavior:

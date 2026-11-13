@@ -30,6 +30,37 @@ RULES = {
 RULES.update(protocol_rules.RULES)
 
 
+def cvss31_base(vector):
+    """Validate analyst-selected base metrics using FIRST CVSS 3.1 equations.
+
+    https://www.first.org/cvss/v3.1/specification-document#7-1-base-metrics-equations
+    """
+    parts = vector.split("/")
+    if len(parts) != 9 or parts[0] != "CVSS:3.1" or any(part.count(":") != 1 for part in parts[1:]):
+        raise ValueError("Use a complete CVSS 3.1 base vector with eight unique metrics")
+    metrics = dict(part.split(":") for part in parts[1:])
+    weights = {"AV": {"N": .85, "A": .62, "L": .55, "P": .2}, "AC": {"L": .77, "H": .44},
+               "PR": {"N": .85, "L": .62, "H": .27}, "UI": {"N": .85, "R": .62},
+               "C": {"N": 0, "L": .22, "H": .56}, "I": {"N": 0, "L": .22, "H": .56},
+               "A": {"N": 0, "L": .22, "H": .56}}
+    if set(metrics) != {*weights, "S"} or metrics["S"] not in {"U", "C"}:
+        raise ValueError("Unsupported or duplicate CVSS base metric")
+    if any(metrics[key] not in values for key, values in weights.items()):
+        raise ValueError("Unsupported CVSS metric value")
+    if metrics["S"] == "C":
+        weights["PR"] = {"N": .85, "L": .68, "H": .5}
+    values = {key: options[metrics[key]] for key, options in weights.items()}
+    iss = 1 - (1 - values["C"]) * (1 - values["I"]) * (1 - values["A"])
+    impact = 6.42 * iss if metrics["S"] == "U" else 7.52 * (iss - .029) - 3.25 * (iss - .02) ** 15
+    if impact <= 0:
+        return 0.0
+    exploitability = 8.22 * values["AV"] * values["AC"] * values["PR"] * values["UI"]
+    base = min((impact + exploitability) * (1.08 if metrics["S"] == "C" else 1), 10)
+    # FIRST Appendix A rounding avoids floating-point boundary differences.
+    integer = round(base * 100000)
+    return integer / 100000 if integer % 10000 == 0 else (integer // 10000 + 1) / 10
+
+
 def evaluate(observation):
     """Return a candidate outcome, with no automatic analyst confirmation."""
     rule = RULES.get(observation.get("check_id"))
@@ -167,6 +198,7 @@ class FindingRepository:
                     "endpoint_evidence": observation.get("endpoint_evidence", observation["evidence_location"]),
                     "confidence": "Not determined",
                     "cvss_vector": "Not determined", "cvss_score": "Not determined",
+                    "cvss_justification": "Not determined",
                     "affected_hostnames": [item["name"] for item in observation.get("hostnames", [])] or "Not determined",
                     "analyst_notes": "Not determined",
                     "test_conditions": observation.get("preconditions", "Not determined"),
@@ -213,11 +245,23 @@ class FindingRepository:
             raise ValueError("A supported status, reviewer identity and rationale are required")
         if status == "Remediated (Verified)":
             raise ValueError("Verified remediation requires a comparable retest and explicit approval")
-        allowed = {"title", "description", "impact", "remediation", "severity", "confidence", "references", "notes", "analyst_notes"}
+        allowed = {"title", "description", "impact", "remediation", "severity", "confidence", "references", "notes", "analyst_notes",
+                   "cvss_vector", "cvss_score", "cvss_justification"}
         if not isinstance(details, dict) or not set(details) <= allowed:
             raise ValueError("Unsupported finding fields")
-        if any(not isinstance(value, str) or not value.strip() for field, value in details.items() if field != "references"):
+        if any(not isinstance(value, str) or not value.strip() for field, value in details.items() if field not in {"references", "cvss_score"}):
             raise ValueError("Finding text fields must contain nonempty text")
+        cvss_fields = {"cvss_vector", "cvss_score", "cvss_justification"}
+        if cvss_fields & details.keys():
+            if all(details.get(field, "Not determined") == "Not determined" for field in cvss_fields):
+                details = {**details, **dict.fromkeys(cvss_fields, "Not determined")}
+            else:
+                if not attest or details.get("cvss_justification", "Not determined").strip() == "Not determined" or not details.get("cvss_vector"):
+                    raise ValueError("CVSS requires an analyst-selected vector, justification and explicit approval")
+                score = cvss31_base(details["cvss_vector"])
+                if "cvss_score" in details and (type(details["cvss_score"]) not in {int, float} or details["cvss_score"] != score):
+                    raise ValueError("CVSS score disagrees with the supplied vector")
+                details = {**details, "cvss_score": score}
         references = details.get("references", [])
         if not isinstance(references, list) or any(not isinstance(value, str) or urlsplit(value).scheme not in {"http", "https"}
                                                  or not urlsplit(value).netloc for value in references):
@@ -316,7 +360,7 @@ class FindingRepository:
 
 
 def finding_view(record):
-    defaults = {"cvss_vector": "Not determined", "cvss_score": "Not determined", "affected_hostnames": "Not determined",
+    defaults = {"cvss_vector": "Not determined", "cvss_score": "Not determined", "cvss_justification": "Not determined", "affected_hostnames": "Not determined",
                 "analyst_notes": record.get("notes", "Not determined"), "test_conditions": "Not determined", "retest_status": "Not tested"}
     return {**defaults, **record}
 
