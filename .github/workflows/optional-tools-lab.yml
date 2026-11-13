@@ -1,0 +1,47 @@
+name: Controlled optional tool integration lab
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  tool-lab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      COMPOSE_PROJECT_NAME: scanrunner_tools_${{ github.run_id }}
+      LAB_IMAGE_TAG: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Prepare owned evidence directory
+        run: |
+          lab_output="$GITHUB_WORKSPACE/lab-output/tools-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          mkdir -p "$lab_output"
+          echo "LAB_OUTPUT_DIR=$lab_output" >> "$GITHUB_ENV"
+          echo "LAB_UID=$(id -u)" >> "$GITHUB_ENV"
+          echo "LAB_GID=$(id -g)" >> "$GITHUB_ENV"
+      - name: Build pinned scanner runtimes
+        run: docker compose -f lab/tools-compose.yaml build
+      - name: Start owned protocol targets
+        run: docker compose -f lab/tools-compose.yaml up -d --wait target
+      - name: Verify isolation and record runtime identities
+        run: |
+          docker network inspect "${COMPOSE_PROJECT_NAME}_lab" > "$LAB_OUTPUT_DIR/network.json"
+          python3 -c "import json,os,pathlib; assert json.loads((pathlib.Path(os.environ['LAB_OUTPUT_DIR'])/'network.json').read_text())[0]['Internal']"
+          docker image inspect "scanrunner-protocol-target:$LAB_IMAGE_TAG" "scanrunner-optional-tools:$LAB_IMAGE_TAG" > "$LAB_OUTPUT_DIR/images.json"
+      - name: Exercise installed scanners and native controls
+        run: docker compose -f lab/tools-compose.yaml run --rm runner
+      - name: Preserve owned target logs
+        if: always()
+        run: docker compose -f lab/tools-compose.yaml logs --no-color > "$LAB_OUTPUT_DIR/target-logs.txt"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: optional-tool-lab-${{ github.run_id }}
+          path: ${{ env.LAB_OUTPUT_DIR }}/
+          include-hidden-files: true
+          retention-days: 14
+      - name: Remove owned containers and network
+        if: always()
+        run: docker compose -f lab/tools-compose.yaml down --volumes --remove-orphans

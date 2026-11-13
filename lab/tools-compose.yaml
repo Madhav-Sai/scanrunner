@@ -1,0 +1,41 @@
+services:
+  target:
+    image: scanrunner-protocol-target:${LAB_IMAGE_TAG:-local}
+    build:
+      context: .
+      dockerfile: Tools.Dockerfile
+      target: tool-target
+    init: true
+    mem_limit: 384m
+    pids_limit: 128
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import socket; socket.create_connection(('127.0.0.1',8080),2).close()"]
+      interval: 2s
+      retries: 30
+    networks:
+      lab:
+        ipv4_address: 172.29.78.10
+  runner:
+    image: scanrunner-optional-tools:${LAB_IMAGE_TAG:-local}
+    build:
+      context: .
+      dockerfile: Tools.Dockerfile
+      target: tool-runner
+    user: "${LAB_UID:-1000}:${LAB_GID:-1000}"
+    init: true
+    mem_limit: 2g
+    pids_limit: 256
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    volumes:
+      - ..:/workspace:ro
+      - ${LAB_OUTPUT_DIR:-../lab-output}:/evidence
+    networks:
+      lab:
+        ipv4_address: 172.29.78.20
+networks:
+  lab:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.29.78.0/24
