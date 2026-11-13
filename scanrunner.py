@@ -16,14 +16,12 @@ import shlex
 import time
 import select
 
-# tty/termios are POSIX-only and back the raw-keystroke live controls
+# termios is POSIX-only and backs the live keystroke controls
 # (Space/Ctrl+X/Ctrl+C during a scan). They don't exist on Windows, so the
 # live key-watcher is disabled there instead of crashing at import time.
 if sys.platform != "win32":
-    import tty
     import termios
 else:
-    tty = None
     termios = None
 
 RAW_MODE_SUPPORTED = sys.platform != "win32"
@@ -201,6 +199,17 @@ def restore_terminal():
                               _original_term_settings)
         except Exception:
             pass
+
+
+def enable_scan_keys(descriptor):
+    """Read scan keys immediately while preserving terminal output processing."""
+    mode = termios.tcgetattr(descriptor)
+    mode[0] &= ~(termios.BRKINT | termios.ICRNL | termios.INPCK | termios.ISTRIP | termios.IXON)
+    mode[2] = (mode[2] & ~(termios.CSIZE | termios.PARENB)) | termios.CS8
+    mode[3] &= ~(termios.ECHO | termios.ICANON | termios.IEXTEN | termios.ISIG)
+    mode[6][termios.VMIN] = 1
+    mode[6][termios.VTIME] = 0
+    termios.tcsetattr(descriptor, termios.TCSADRAIN, mode)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1060,7 +1069,7 @@ def capture_process(command, directory, timeout=600, live=False, environment=Non
         if not live or not RAW_MODE_SUPPORTED or not sys.stdin.isatty():
             return
         try:
-            tty.setraw(sys.stdin.fileno())
+            enable_scan_keys(sys.stdin.fileno())
             while not stop_keys.is_set():
                 ready, _, _ = select.select([sys.stdin], [], [], 0.1)
                 if ready:
@@ -1069,7 +1078,7 @@ def capture_process(command, directory, timeout=600, live=False, environment=Non
                         key_state.append("Interrupted" if key == "\x03" else "SKIPPED")
                         break
                     if key == " ":
-                        print(f"\r\nScanner PID {process.pid}, running {time.monotonic() - started:.1f}s\r\n")
+                        print(f"\nScanner PID {process.pid}, running {time.monotonic() - started:.1f}s\n")
         finally:
             restore_terminal()
     def copy_stream(stream, name):
@@ -2776,13 +2785,8 @@ def _build_nmap_command(target, output_file, nmap_extra, use_pn=False):
 # ═══════════════════════════════════════════════════════════════════════════════
 #  RAW-SAFE OUTPUT
 #
-#  When the key-watcher calls tty.setraw(), the terminal stops translating
-#  \n → \r\n for ALL threads including main.  Every print() then starts from
-#  wherever the cursor already is, scattering lines across the screen.
-#
-#  Fix: all output inside run_nmap_scan uses rprint() which writes \r\n
-#  explicitly, guaranteeing every line starts at column 0 regardless of
-#  terminal mode.
+#  Compatibility rendering helpers. Live capture preserves the terminal's
+#  output processing while enabling immediate scan-control keys.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _rprint(text=""):
