@@ -212,7 +212,7 @@ _scanrunner() {{
     '--status[summarise an output folder]:directory:_directories' \\
     '--diff[compare two output folders]:old directory:_directories' \\
     '(-h --help)'{{-h,--help}}'[show help]' \\
-    '*:Nmap argument or target:'
+    '*:Nmap argument or target:({options})'
 }}
 
 _scanrunner "$@"
@@ -243,6 +243,8 @@ def fish_completion() -> str:
     for option in OPTIONS:
         if option.startswith("--"):
             lines.append(f"complete -c scanrunner -l {option[2:]}")
+        elif not option.startswith("-"):
+            lines.append(f"complete -c scanrunner -n '__fish_use_subcommand' -a '{option}'")
         elif option.startswith("-") and len(option) == 2:
             lines.append(f"complete -c scanrunner -s {option[1:]}")
     lines.extend([

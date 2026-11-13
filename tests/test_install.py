@@ -32,6 +32,22 @@ class InstallerCompatibilityTests(unittest.TestCase):
             self.assertIn("%*", launcher.read_text())
             update_path.assert_called_once_with(Path(tmp))
 
+    def test_new_commands_available_in_every_completion_generator(self):
+        import scanrunner as sr
+        from scanrunner_help import GUIDES
+        scripts = [installer.bash_completion(), installer.zsh_completion(),
+                   installer.fish_completion(), sr.completion_script("bash"),
+                   sr.completion_script("zsh")]
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(Path, "home", return_value=Path(tmp)):
+            installer.install_completion("powershell", "Windows")
+            scripts.append((Path(tmp) / "Documents/PowerShell/scanrunner-completion.ps1").read_text())
+        for script in scripts:
+            for command in ["guide", "help", "--whats-new", *GUIDES]:
+                with self.subTest(command=command, shell=script[:40]):
+                    expected = "-l whats-new" if script.startswith("complete -c") and command == "--whats-new" else command
+                    self.assertIn(expected, script)
+
     def test_completion_updates_are_idempotent_and_preserve_user_content(self):
         with tempfile.TemporaryDirectory() as tmp:
             profile = Path(tmp) / "profile"

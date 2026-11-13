@@ -1534,6 +1534,8 @@ def completion_script(shell):
         "--status", "--diff",
     ]
     options.extend("--" + name for name in OPTION_HELP if "--" + name not in options)
+    from scanrunner_help import GUIDES
+    options.extend(name for name in ["guide", "help", "--whats-new", *GUIDES] if name not in options)
     profiles = " ".join(sorted(SCAN_PROFILES))
     protocols = "smb rdp ldap winrm ssh ftp mssql wmi vnc nfs"
     queries = " ".join(sorted(NXC_QUERY_CHOICES))
@@ -1572,7 +1574,7 @@ _scanrunner() {{
     '(-o --output)'{{-o,--output}}'[output directory]:directory:_directories' \\
     '--status[summarise an output folder]:directory:_directories' \\
     '--diff[compare two output folders]:old directory:_directories' \\
-    '*:argument:'
+    '*:argument:({' '.join(options)})'
 }}
 _scanrunner "$@"
 """

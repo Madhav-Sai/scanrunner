@@ -879,7 +879,26 @@ Built for Security Professionals
 
 ## Shell Tab Completion
 
-scanrunner can generate and install completion for Zsh and Bash.
+The installer provides completion for Bash, Zsh, Fish and PowerShell.
+The CLI can also generate or install Bash and Zsh scripts directly.
+Completion includes the assessment commands, `guide`, `help`, `--whats-new`,
+scan profiles and the existing scan options. It does not suggest live hostnames
+or dynamically look up finding IDs.
+
+After upgrading, regenerate completion so your shell sees the new commands:
+
+```bash
+# Bash or Zsh: select your shell
+scanrunner --install-completion bash
+scanrunner --install-completion zsh
+
+# Fish: rerun the installer from the updated checkout
+python3 install.py --user --shell fish
+```
+
+For PowerShell, run `python install.py --user --shell powershell` from the
+updated checkout. Open a new shell after installation. These installer commands
+also refresh the installed application; they do not run a scan.
 
 ### Zsh
 
