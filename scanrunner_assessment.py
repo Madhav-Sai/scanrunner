@@ -192,7 +192,6 @@ class AssessmentRepository:
                     observation["preconditions"] = {key: observation[key] for key in
                         ("source_tool", "host_state", "service_state", "execution_outcome", "scan_completion", "check_execution")}
                     observation["evaluation"] = evaluate(observation)
-                    observation["check_version"] = record["tool_version"]
                     database.execute("INSERT INTO security_observations VALUES (?, ?, ?, ?, ?)",
                                      (observation_id, asset_id, record["run_id"], record["job_id"], json.dumps(observation)))
 
@@ -283,7 +282,7 @@ def assessment_report(backend, directory, engagement, records, run_id=None, exec
     result = {"schema_version": 1, "summary": summary}
     if not executive:
         result["inventory"] = records
-        result["findings"] = all_findings if include_candidates else confirmed
+        result["findings"] = [findings.finding_view(row) for row in (all_findings if include_candidates else confirmed)]
         with read_database(directory) as database:
             result["runs"] = [dict(row) for row in database.execute(
                 "SELECT id,started,ended,outcome FROM runs WHERE engagement=? AND (? IS NULL OR id=?)",

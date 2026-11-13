@@ -115,6 +115,16 @@ Review results (no scanning):
   scanrunner --diff OLD_DIR NEW_DIR            Compare open ports between two runs
   scanrunner inventory --help                 Review normalized assets and services
   scanrunner findings --help                  Create and review evidence-linked findings
+  scanrunner probe --help                     Run explicitly scoped FTP/DNS controls
+  scanrunner plugin --help                    Use an explicitly enabled optional scanner
+  scanrunner rules --help                     Inspect versioned evidence contracts
+  scanrunner trends --help                    Review coverage-aware asset history
+  scanrunner share --help                     Preview an anonymized allowlisted export
+  scanrunner attest --help                    Authenticate report and evidence manifests
+  scanrunner schedule --help                  Manage explicitly queued local scans
+  scanrunner advisory --help                  Import local CVE JSON snapshots
+  scanrunner template --help                  Reuse engagement and report settings
+  scanrunner tui --help                       Open the local terminal assessment menu
   scanrunner retest --help                    Compare control-specific evidence
   scanrunner benchmark --help                 Score checks against supplied labels
 
@@ -1034,10 +1044,11 @@ class WindowsProcessJob:
             self.handle = None
 
 
-def capture_process(command, directory, timeout=600, live=False):
+def capture_process(command, directory, timeout=600, live=False, environment=None):
     """Preserve exact stdout/stderr and bound execution, including cancellation."""
     execution = [sys.executable, "-c", POSIX_SUPERVISOR, str(os.getpid()), *command] if os.name == "posix" else command
     process = subprocess.Popen(execution, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                               **({"env": environment} if environment is not None else {}),
                                stderr=subprocess.PIPE, start_new_session=os.name == "posix",
                                creationflags=(subprocess.CREATE_NEW_PROCESS_GROUP | 0x4) if os.name == "nt" else 0)
     tree = WindowsProcessJob(process)
@@ -2434,6 +2445,8 @@ def _run_nxc_command(binary, protocol, target_source, targets, nxc_extra, querie
                                  (target_outcomes[target], store.run_id, target))
     timestamp = datetime.now().strftime('%Y%m%d-%H%M%S-%f')
     raw_path = os.path.join(job['directory'], 'stdout.bin')
+    import scanrunner_plugins
+    scanrunner_plugins.persist_nxc(store, job, rows, protocol)
     rows = [{field: redact_output_text(str(value)) for field, value in row.items()} for row in rows]
     columns = nxc_table_columns(protocol, queries)
     print_nxc_table(rows, columns, protocol=protocol)
@@ -3707,6 +3720,12 @@ def bounded_futures(executor, function, targets, limit):
 def main():
     global COLORS_ENABLED, ACTIVE_SCOPE, ACTIVE_STORE, ACTIVE_CONFIG
     _save_terminal()
+    if len(sys.argv) > 1 and sys.argv[1] in {"share", "attest", "trends", "rules", "schedule", "advisory", "template", "tui"}:
+        import scanrunner_operations
+        sys.exit(scanrunner_operations.cli(sys.argv[1:], sys.modules[__name__]))
+    if len(sys.argv) > 1 and sys.argv[1] == "plugin":
+        import scanrunner_plugins
+        sys.exit(scanrunner_plugins.cli(sys.argv[2:], sys.modules[__name__]))
     if len(sys.argv) > 1 and sys.argv[1] == "probe":
         import scanrunner_probes
         sys.exit(scanrunner_probes.cli(sys.argv[2:], sys.modules[__name__]))

@@ -315,6 +315,12 @@ class FindingRepository:
         return data
 
 
+def finding_view(record):
+    defaults = {"cvss_vector": "Not determined", "cvss_score": "Not determined", "affected_hostnames": "Not determined",
+                "analyst_notes": record.get("notes", "Not determined"), "test_conditions": "Not determined", "retest_status": "Not tested"}
+    return {**defaults, **record}
+
+
 def list_findings(directory, engagement, include_candidates=False):
     with assessment.read_database(directory) as database:
         if not database.execute("SELECT 1 FROM sqlite_master WHERE name='findings'").fetchone():
@@ -365,9 +371,9 @@ def cli(argv, backend):
                 FindingRepository(store, backend).validate_final_export(args.engagement, records)
             finally:
                 store.end("Final export evidence checked")
-            assessment.export_records(backend, records, args.destination, args.format)
+            assessment.export_records(backend, [finding_view(record) for record in records], args.destination, args.format)
             return 0
-        print(json.dumps(assessment.redact_records(backend, records), indent=2))
+        print(json.dumps(assessment.redact_records(backend, [finding_view(record) for record in records]), indent=2))
         return 0
     if action == "create" and not args.observation:
         parser.error("create requires --observation")

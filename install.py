@@ -15,7 +15,7 @@ from pathlib import Path
 
 APP = "scanrunner"
 SCRIPT = "scanrunner.py"
-COMPANIONS = ("scanrunner_assessment.py", "scanrunner_findings.py", "scanrunner_benchmark.py", "scanrunner_exports.py", "scanrunner_rules.py", "scanrunner_probes.py")
+COMPANIONS = ("scanrunner_assessment.py", "scanrunner_findings.py", "scanrunner_benchmark.py", "scanrunner_exports.py", "scanrunner_rules.py", "scanrunner_probes.py", "scanrunner_plugins.py", "scanrunner_operations.py", "scanrunner_workspace.py")
 MARKER_START = "# >>> scanrunner completion >>>"
 MARKER_END = "# <<< scanrunner completion <<<"
 

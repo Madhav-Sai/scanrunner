@@ -92,6 +92,7 @@ def benchmark(manifest_path, backend, destination=None):
                                              {"id": "benchmark", "run_id": "benchmark"})
             tool_versions = sorted({host["tool_version"] for host in hosts})
             observations = [{**script, "addresses": [item["address"] for item in host["addresses"]],
+                             "observed_at": host["observed_at"],
                              "host_state": host["host_state"], "execution_outcome": host["execution_outcome"],
                              "source_tool": host["source_tool"],
                              "scan_completion": host["scan_completion"],
