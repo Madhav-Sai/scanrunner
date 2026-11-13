@@ -26,6 +26,16 @@ def main():
             command += ["--template", str(template), "--template-sha256", hashlib.sha256(template.read_bytes()).hexdigest(),
                         "--template-reviewed-by", "Controlled lab literal HTTP marker"]
         commands.append((tool, command, None))
+    commands.append(("httpx-redirect", ["plugin", "run", "--adapter", "httpx", "--target", f"http://{TARGET}:8080/redirect",
+        "--scope-file", str(scope), "--output", str(OUTPUT / "httpx-redirect"), "--enable", "--authorization-note", "Owned redirect boundary test",
+        "--expected-version", "1.12.0"], None))
+    redirect_template = OUTPUT / "reviewed-redirect-template.yaml"
+    redirect_template.write_text(json.dumps({"id": "owned-lab-redirect", "info": {"name": "Owned redirect status", "author": "ScanRunner controlled lab", "severity": "info"},
+        "http": [{"method": "GET", "path": ["{{BaseURL}}/redirect"], "matchers": [{"type": "status", "status": [302]}]}]}))
+    commands.append(("nuclei-redirect", ["plugin", "run", "--adapter", "nuclei", "--target", f"http://{TARGET}:8080/",
+        "--scope-file", str(scope), "--output", str(OUTPUT / "nuclei-redirect"), "--enable", "--authorization-note", "Owned redirect boundary test",
+        "--expected-version", "3.11.1", "--template", str(redirect_template), "--template-sha256", hashlib.sha256(redirect_template.read_bytes()).hexdigest(),
+        "--template-reviewed-by", "Controlled lab exact redirect-status matcher"], None))
     for kind, port, expected in (("ftp-anon", 21, "Potential"), ("ftp-anon", 2121, "Not observed"),
                                  ("dns-recursion", 53, "Potential"), ("dns-recursion", 5353, "Not observed")):
         name = kind + "-" + str(port)
@@ -50,10 +60,12 @@ def main():
         matched = bool(rows) and all(row.get("verification_status") == "Needs Verification" for row in rows)
         if expected is not None:
             matched = matched and len(rows) == 1 and rows[0]["evaluation"]["outcome"] == expected
-        elif name == "httpx":
-            matched = matched and all(row["data"]["status_code"] == 200 for row in rows)
-        elif name == "nuclei":
-            matched = matched and all(row["check_id"] == "owned-lab-status" for row in rows)
+        elif name.startswith("httpx"):
+            expected_status = 302 if name == "httpx-redirect" else 200
+            matched = matched and all(row["data"]["status_code"] == expected_status for row in rows)
+        elif name.startswith("nuclei"):
+            expected_id = "owned-lab-redirect" if name == "nuclei-redirect" else "owned-lab-status"
+            matched = matched and all(row["check_id"] == expected_id for row in rows)
         else:
             protocols = {row["check_id"]: row["data"]["finding"] for row in rows}
             matched = matched and protocols.get("TLS1") == "not offered" and protocols.get("TLS1_1") == "not offered" and protocols.get("TLS1_2") == "offered"
