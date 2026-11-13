@@ -901,7 +901,7 @@ Offline workflow tests run synthetic scanners through Python on Windows and POSI
 they block child DNS, shell launches and real scanner executables. A controlled
 localhost Nmap integration is separate and requires both Nmap and the explicit
 `SCANRUNNER_TEST_REAL_NMAP=1` environment variable. Leave it unset for offline tests.
-See `tests/fixtures/README.md` for fixture provenance and `AUDIT.md` for known gaps.
+See `tests/fixtures/README.md` for fixture provenance. The supported control checks and their limitations are described below.
 
 Port diffs report removed entries as **no longer observed open**. Scan coverage
 has not been proved equivalent, so this is not proof of closure or remediation.

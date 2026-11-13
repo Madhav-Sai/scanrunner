@@ -8,3 +8,12 @@ __pycache__/
 /lab-output/
 /lab-evidence/
 /.venv-roadmap/
+/audit-*.json
+/AUDIT.md
+/DEEP_AUDIT_SCORECARD.md
+/EVIDENCE_ACCURACY_FOLLOWUP.md
+/IMPROVEMENT_REPORT.md
+/LIVE_ACCURACY_REPORT.md
+/RESUME_NOTES.md
+/ROADMAP_IMPLEMENTATION.md
+/SCANRUNNER_CODEX_MASTER_PLAN.md
