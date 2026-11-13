@@ -44,8 +44,8 @@ from datetime import datetime, timezone
 from urllib.parse import urlsplit
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 
-__version__ = "1.4.0"
-EVIDENCE_PARSER_VERSION = "3"
+__version__ = "1.5.0"
+EVIDENCE_PARSER_VERSION = "4"
 
 # When an interactive run has at least this many pending targets, offer to
 # split the work across separate terminal tabs (see offer_terminal_tabs()).
@@ -64,6 +64,11 @@ SCAN_PROFILES = {
                   "smb-os-discovery,smb-protocols,smb-security-mode,smb2-security-mode"],
     "rdp-audit": ["-sV", "--script",
                   "rdp-enum-encryption,rdp-ntlm-info"],
+    "safe-baseline": ["-sT", "--top-ports", "100", "--version-light"],
+    "ssh-audit": ["-sV", "-p", "22", "--script", "ssh2-enum-algos"],
+    "dns-audit": ["-sU", "-p", "53", "-sV"],
+    "ad-discovery": ["-sT", "-sV", "-p", "53,88,135,139,389,445,464,636,3268,3269"],
+    "tls-audit": ["-sV", "-p", "443,8443", "--script", "ssl-cert,ssl-enum-ciphers"],
 }
 
 PROFILE_NOTES = {
@@ -71,8 +76,14 @@ PROFILE_NOTES = {
     "web-enum": "Compatibility alias for web service inventory. HTTP script enumeration is unavailable.",
     "full-fast": "Full TCP service/OS scan with host discovery bypassed. Uses the configured rate ceiling.",
     "smb-audit": "Starts anonymous SMB sessions. Requires --allow-intrusive and --authorization-note.",
+    "safe-baseline": "Bounded TCP connect inventory without NSE scripts.",
+    "ssh-audit": "Lists offered SSH algorithms. Algorithm offers require policy review.",
+    "dns-audit": "DNS service inventory. Use probe dns-recursion with an owned canary for control verification.",
+    "ad-discovery": "AD-associated service inventory without authentication or directory enumeration.",
+    "tls-audit": "Certificate and cipher negotiation. Requires explicit authorization for repeated handshakes.",
+    "ssl-ciphers": "Repeated TLS handshakes require --allow-intrusive and --authorization-note.",
 }
-PROFILE_REQUIRES_AUTHORIZATION = {"smb-audit"}
+PROFILE_REQUIRES_AUTHORIZATION = {"smb-audit", "ssl-ciphers", "tls-audit"}
 
 NXC_QUERY_CHOICES = {
     "os", "hostname", "smbv1", "smb-signing", "null-auth", "rdp-nla", "all"
@@ -817,6 +828,8 @@ class RunStore:
                 required.update({"nmap.txt", "nmap.xml"})
             elif tool == "nxc":
                 required.update({"targets.txt", "coverage.json"})
+            elif tool == "probe":
+                required.add("probe.json")
             if (exit_code != 0 or not parser_ok or
                     not all(os.path.isfile(os.path.join(job["directory"], name)) for name in required)):
                 outcome, parser_ok = "INCONCLUSIVE", False
@@ -852,6 +865,20 @@ class RunStore:
                         or recorded_coverage.get("queries") != self.config.get("nxc_queries", [])
                         or recorded_coverage.get("port") != nxc_expected_port(self.config.get("options", []), protocol)
                         or recorded_coverage.get("protocol") != protocol):
+                    outcome, parser_ok = "INCONCLUSIVE", False
+            elif tool == "probe":
+                try:
+                    import scanrunner_probes
+                    import scanrunner_findings
+                    records = scanrunner_probes.normalize(sys.modules[__name__], Path(job["directory"]) / "probe.json",
+                                                         job["target"], {**job, "run_id": self.run_id})
+                    record = records[0]
+                    script = record["scripts"][0]
+                    observed = {**script, "addresses": [job["target"]], "host_state": "up", "service_state": "open",
+                                "source_tool": record["source_tool"], "execution_outcome": "COMPLETE", "scan_completion": "success"}
+                    if script["port"] != self.config.get("port") or scanrunner_findings.evaluate(observed)["outcome"] == "Inconclusive":
+                        outcome, parser_ok = "INCONCLUSIVE", False
+                except (OSError, ValueError, KeyError, TypeError):
                     outcome, parser_ok = "INCONCLUSIVE", False
         artifacts = []
         for name in sorted(os.listdir(job["directory"])):
@@ -1225,7 +1252,7 @@ def validate_scan_options(options, nxc=False, allow_intrusive=False):
                  "--open", "--reason", "--version-light", "--version-all", "--osscan-limit",
                  "--osscan-guess", "--disable-arp-ping", "--send-ip", "--send-eth", "--unprivileged",
                  "--privileged", "--defeat-rst-ratelimit", "--defeat-icmp-ratelimit"}
-    approved_scripts = {"ssl-enum-ciphers", "smb-os-discovery",
+    approved_scripts = {"ssl-enum-ciphers", "ssl-cert", "ssh2-enum-algos", "ftp-anon", "smb-os-discovery",
                         "smb-protocols", "smb-security-mode", "smb2-security-mode", "rdp-enum-encryption", "rdp-ntlm-info"}
     index = 0
     while index < len(options):
@@ -1239,6 +1266,10 @@ def validate_scan_options(options, nxc=False, allow_intrusive=False):
                 raise ValueError("NSE selection contains an unreviewed or scope-extending script")
             if "smb-os-discovery" in value.split(",") and not allow_intrusive:
                 raise ValueError("Anonymous SMB sessions require --allow-intrusive and --authorization-note")
+            if "ftp-anon" in value.split(","):
+                raise ValueError("Use the scoped native FTP probe to avoid NSE passive-data destination expansion")
+            if "ssl-enum-ciphers" in value.split(",") and not allow_intrusive:
+                raise ValueError("TLS cipher enumeration requires --allow-intrusive and --authorization-note")
         elif option in value_options:
             if not equal:
                 index += 1
@@ -3641,7 +3672,7 @@ def preview_scan(args, targets, scope, exclusions):
                          "scope_decision": "Validated locally" if literal else "Requires DNS validation before execution",
                          "argv": argv})
     preview = {"tool": "NetExec" if args.nxc else "Nmap", "profile": args.profile or "custom",
-               "impact": "credentialed" if args.allow_intrusive else "potentially noisy",
+               "impact": "Explicitly authorized protocol probes" if args.allow_intrusive else "potentially noisy",
                "required_privileges": "Administrator/root for raw-packet and OS detection modes" if
                    any(flag in args.nmap_extra for flag in ("-sS", "-sU", "-O")) else "Depends on scanner mode",
                "side_effects": "Execution sends network probes and writes raw evidence and reports",
@@ -3676,6 +3707,9 @@ def bounded_futures(executor, function, targets, limit):
 def main():
     global COLORS_ENABLED, ACTIVE_SCOPE, ACTIVE_STORE, ACTIVE_CONFIG
     _save_terminal()
+    if len(sys.argv) > 1 and sys.argv[1] == "probe":
+        import scanrunner_probes
+        sys.exit(scanrunner_probes.cli(sys.argv[2:], sys.modules[__name__]))
     if len(sys.argv) > 1 and sys.argv[1] in {"engagement", "inventory", "asset", "import", "observations", "report", "findings", "retest", "benchmark"}:
         import scanrunner_assessment as assessment
         sys.exit(assessment.cli(sys.argv[1:], sys.modules[__name__]))

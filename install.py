@@ -15,13 +15,14 @@ from pathlib import Path
 
 APP = "scanrunner"
 SCRIPT = "scanrunner.py"
-COMPANIONS = ("scanrunner_assessment.py", "scanrunner_findings.py", "scanrunner_benchmark.py")
+COMPANIONS = ("scanrunner_assessment.py", "scanrunner_findings.py", "scanrunner_benchmark.py", "scanrunner_exports.py", "scanrunner_rules.py", "scanrunner_probes.py")
 MARKER_START = "# >>> scanrunner completion >>>"
 MARKER_END = "# <<< scanrunner completion <<<"
 
 PROFILES = [
     "quick", "full", "full-fast", "web", "web-enum", "ssl-ciphers",
     "smb-audit", "rdp-audit", "udp",
+    "safe-baseline", "ssh-audit", "dns-audit", "ad-discovery", "tls-audit",
 ]
 NXC_PROTOCOLS = ["smb", "rdp", "ldap", "winrm", "ssh", "ftp", "mssql", "wmi", "vnc", "nfs"]
 NXC_QUERIES = ["os", "hostname", "smbv1", "smb-signing", "null-auth", "rdp-nla", "all"]

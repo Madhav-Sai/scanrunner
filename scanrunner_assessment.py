@@ -13,7 +13,7 @@ import sqlite3
 import uuid
 from collections import Counter
 
-PARSER_VERSION = "1"
+PARSER_VERSION = "2"
 COMMANDS = {"engagement", "inventory", "asset", "import", "observations", "report", "findings", "retest", "benchmark"}
 
 
@@ -101,8 +101,23 @@ def normalize_nmap(backend, path, target, job, outcome="Imported"):
                                        endpoint_association="Derived from sole eligible SMB endpoint and Nmap library selection",
                                        endpoint_evidence=candidates[0]["evidence_location"])
             record["scripts"].append(observation)
+        for script in record["scripts"]:
+            script["check_version"] = record["tool_version"]
+        for service in record["services"]:
+            if service["transport"] == "tcp" and service["state"] == "open" and service["port"] in {22, 23, 3389, 5985, 5986, 5900}:
+                record["scripts"].append({"check_id": "management-exposure", "check_version": "1", "port": service["port"],
+                    "transport": "tcp", "output": f"Open tcp/{service['port']}", "fields": [], "structured": {},
+                    "evidence_location": service["evidence_location"], "endpoint_association": "Explicit XML port element",
+                    "confidence": "Exposure only", "check_execution": "Output observed"})
         hosts.append(record)
     return hosts
+
+
+def normalize_artifact(backend, path, target, job, outcome="Imported"):
+    if str(path).endswith(".json"):
+        from scanrunner_probes import normalize
+        return normalize(backend, path, target, job, outcome)
+    return normalize_nmap(backend, path, target, job, outcome)
 
 
 def script_observation(script, location, port, transport):
@@ -116,7 +131,8 @@ def script_observation(script, location, port, transport):
             "structured": structure(script),
             "endpoint_association": "Explicit XML port element" if port is not None else "Host-level endpoint not determined",
             "evidence_location": location, "confidence": "Unverified",
-            "check_execution": "Inconclusive" if any(token in output.lower() for token in ("error", "timed out", "failed"))
+            "check_execution": "Inconclusive" if any(token in output.lower() for token in ("error", "timed out"))
+                or "failed" in output.lower() and script.get("id") != "rdp-enum-encryption"
                 else "Output observed"}
 
 
@@ -161,6 +177,7 @@ class AssessmentRepository:
                 for script in record["scripts"]:
                     observation_id = hashlib.sha256((identity + script["evidence_location"]).encode()).hexdigest()
                     observation = {**script, "asset_id": asset_id, "addresses": addresses,
+                                   "hostnames": record["hostnames"],
                                    "run_id": record["run_id"], "job_id": record["job_id"],
                                    "raw_sha256": record["raw_sha256"], "artifact": record["artifact"],
                                    "observed_at": record["observed_at"], "execution_outcome": record["execution_outcome"],
@@ -171,6 +188,11 @@ class AssessmentRepository:
                                    "service_state": next((service["state"] for service in record["services"]
                                                           if service["port"] == script["port"] and service["transport"] == script["transport"]), "Not determined"),
                                    "parser_version": PARSER_VERSION, "verification_status": "Needs Verification"}
+                    from scanrunner_findings import evaluate
+                    observation["preconditions"] = {key: observation[key] for key in
+                        ("source_tool", "host_state", "service_state", "execution_outcome", "scan_completion", "check_execution")}
+                    observation["evaluation"] = evaluate(observation)
+                    observation["check_version"] = record["tool_version"]
                     database.execute("INSERT INTO security_observations VALUES (?, ?, ?, ?, ?)",
                                      (observation_id, asset_id, record["run_id"], record["job_id"], json.dumps(observation)))
 
@@ -258,10 +280,16 @@ def assessment_report(backend, directory, engagement, records, run_id=None, exec
                "confirmed_findings": len(confirmed),
                "finding_status_counts": dict(Counter(finding["status"] for finding in all_findings)),
                "limitations": "Requested targets can be CIDRs or hostnames. Imported observations do not establish newly executed scan coverage. Failed, missing and inconclusive checks limit assessment coverage."}
-    result = {"summary": summary}
+    result = {"schema_version": 1, "summary": summary}
     if not executive:
         result["inventory"] = records
         result["findings"] = all_findings if include_candidates else confirmed
+        with read_database(directory) as database:
+            result["runs"] = [dict(row) for row in database.execute(
+                "SELECT id,started,ended,outcome FROM runs WHERE engagement=? AND (? IS NULL OR id=?)",
+                (engagement, run_id, run_id))]
+            result["retests"] = [json.loads(row[0]) for row in database.execute(
+                "SELECT e.data FROM retest_events e JOIN findings f ON f.id=e.finding_id WHERE f.engagement=?", (engagement,))]
     return result
 
 
@@ -287,6 +315,9 @@ def export_records(backend, records, destination, output_format):
             page += "<tr>" + "".join("<td>" + html.escape(str(row.get(key, "Not determined"))) + "</td>" for key in fields) + "</tr>"
         with backend.atomic_text(str(destination)) as file:
             file.write(page + "</table>")
+    elif output_format == "xlsx":
+        from scanrunner_exports import workbook
+        workbook({"Records": records}, destination)
     else:
         raise ValueError("Unsupported export format")
 
@@ -330,7 +361,7 @@ def cli(argv, backend):
     if command in {"inventory", "report"}:
         parser.add_argument("--run")
         parser.add_argument("--history", action="store_true")
-        parser.add_argument("--format", choices=["json", "csv", "html"], default="json")
+        parser.add_argument("--format", choices=["json", "csv", "html", "xlsx"], default="json")
         parser.add_argument("--destination")
         parser.add_argument("--json", action="store_true")
         parser.add_argument("--ip", help="Filter addresses by IP or CIDR without DNS")
@@ -377,10 +408,17 @@ def cli(argv, backend):
                 if args.format == "json":
                     with backend.atomic_text(args.destination) as file:
                         json.dump(redact_records(backend, result), file, indent=2)
+                elif args.format == "xlsx":
+                    from scanrunner_exports import workbook
+                    workbook(redact_records(backend, {"Summary": [result["summary"]],
+                        "Inventory": inventory_rows(result.get("inventory", [])), "Findings": result.get("findings", []),
+                        "Runs": result.get("runs", []), "Retests": result.get("retests", [])}), args.destination)
                 else:
                     rows = [{"section": "summary", **result["summary"]}]
                     rows += [{"section": "inventory", **row} for row in inventory_rows(result.get("inventory", []))]
                     rows += [{"section": "finding", **row} for row in result.get("findings", [])]
+                    rows += [{"section": "run", **row} for row in result.get("runs", [])]
+                    rows += [{"section": "retest", **row} for row in result.get("retests", [])]
                     export_records(backend, rows, args.destination, args.format)
             else:
                 print(json.dumps(redact_records(backend, result), indent=2))

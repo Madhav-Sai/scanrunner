@@ -25,7 +25,7 @@ for path in sources:
 # distributable retains valid entry points and version metadata without running scans.
 payload = io.BytesIO()
 with zipfile.ZipFile(payload, "w") as archive:
-    for name in ("scanrunner.py", "scanrunner_assessment.py", "scanrunner_findings.py", "scanrunner_benchmark.py", "install.py", "LICENSE", "README.md"):
+    for name in ("scanrunner.py", *[path.name for path in ROOT.glob("scanrunner_*.py")], "install.py", "LICENSE", "README.md"):
         archive.writestr(name, (ROOT / name).read_bytes())
 with zipfile.ZipFile(payload) as archive:
     assert archive.testzip() is None

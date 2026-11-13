@@ -9,8 +9,9 @@ import uuid
 from urllib.parse import urlsplit
 
 import scanrunner_assessment as assessment
+import scanrunner_rules as protocol_rules
 
-RULE_VERSION = "3"
+RULE_VERSION = "4"
 SMB_DIALECTS = {
     "202": "2.0.2", "210": "2.1", "300": "3.0", "302": "3.0.2", "311": "3.1.1",
     "2.0.2": "2.0.2", "2.1": "2.1", "3.0": "3.0", "3.0.2": "3.0.2", "3.1.1": "3.1.1",
@@ -26,6 +27,7 @@ RULES = {
         "id": "SR-SMBV1", "title": "SMBv1 negotiation requires review",
         "ports": {139, 445}, "reference": "https://nmap.org/nsedoc/scripts/smb-protocols.html"},
 }
+RULES.update(protocol_rules.RULES)
 
 
 def evaluate(observation):
@@ -34,14 +36,20 @@ def evaluate(observation):
     result = {"outcome": "Inconclusive", "rule_version": RULE_VERSION,
               "rule_id": rule["id"] if rule else "Unsupported check",
               "reason": "Missing validated check prerequisites"}
-    if (not rule or observation.get("transport") != "tcp" or observation.get("port") not in rule["ports"]
-            or observation.get("source_tool") != "nmap"
+    native = observation.get("source_tool") == "scanrunner-probe" and observation.get("check_id") in {"ftp-anon", "sr-dns-recursion"}
+    if (not rule or observation.get("transport") != rule.get("transport", "tcp")
+            or observation.get("port") not in rule["ports"] and not native
+            or observation.get("source_tool") != "nmap" and not native
+            or observation.get("check_id") == "sr-dns-recursion" and not native
             or len(observation.get("addresses", [])) != 1 or observation.get("host_state") != "up"
             or observation.get("service_state") != "open"
             or observation.get("execution_outcome") not in {"COMPLETE", "Imported"}
             or observation.get("scan_completion") != "success"
             or observation.get("check_execution") != "Output observed"):
         return result
+    if observation["check_id"] in protocol_rules.RULES:
+        outcome, reason = protocol_rules.assess(observation)
+        return {**result, "outcome": outcome, "reason": reason}
     output = observation.get("output", "").strip()
     if re.search(r"\b(error|failed|timeout|timed out|inconclusive)\b", output, re.I):
         return result
@@ -110,7 +118,7 @@ class FindingRepository:
         job = database.execute("SELECT * FROM jobs WHERE id=?", (observation["job_id"],)).fetchone()
         if job is None or not self.store.verify_job(job):
             raise ValueError("Source job evidence integrity failed")
-        records = assessment.normalize_nmap(self.backend, path, observation["addresses"],
+        records = assessment.normalize_artifact(self.backend, path, observation["addresses"],
                                             {"id": job["id"], "run_id": job["run_id"]}, job["outcome"])
         matches = [(record, script) for record in records for script in record["scripts"]
                    if script["evidence_location"] == observation["evidence_location"]]
@@ -130,6 +138,8 @@ class FindingRepository:
                     "imported": record["imported"], "parser_version": record["parser_version"],
                     "service_state": next((service["state"] for service in record["services"]
                                            if service["port"] == script["port"] and service["transport"] == script["transport"]), "Not determined")}
+        if observation.get("parser_version") == "1":
+            expected.update(parser_version="1", check_version="Scanner implementation")
         if any(observation.get(field) != value for field, value in expected.items()):
             raise ValueError("Stored observation disagrees with preserved raw evidence")
         return observation
@@ -156,6 +166,11 @@ class FindingRepository:
                     "endpoint_association": observation.get("endpoint_association", "Not determined"),
                     "endpoint_evidence": observation.get("endpoint_evidence", observation["evidence_location"]),
                     "confidence": "Not determined",
+                    "cvss_vector": "Not determined", "cvss_score": "Not determined",
+                    "affected_hostnames": [item["name"] for item in observation.get("hostnames", [])] or "Not determined",
+                    "analyst_notes": "Not determined",
+                    "test_conditions": observation.get("preconditions", "Not determined"),
+                    "retest_status": "Not tested",
                     "evaluation": evaluation, "evidence": {"artifact": observation["artifact"],
                     "sha256": observation["raw_sha256"], "location": observation["evidence_location"]},
                     "baseline_run": observation["run_id"], "created_at": self.backend.utc_now(),
@@ -198,7 +213,7 @@ class FindingRepository:
             raise ValueError("A supported status, reviewer identity and rationale are required")
         if status == "Remediated (Verified)":
             raise ValueError("Verified remediation requires a comparable retest and explicit approval")
-        allowed = {"title", "description", "impact", "remediation", "severity", "confidence", "references", "notes"}
+        allowed = {"title", "description", "impact", "remediation", "severity", "confidence", "references", "notes", "analyst_notes"}
         if not isinstance(details, dict) or not set(details) <= allowed:
             raise ValueError("Unsupported finding fields")
         if any(not isinstance(value, str) or not value.strip() for field, value in details.items() if field != "references"):
@@ -286,7 +301,7 @@ class FindingRepository:
                 if current.get("imported", True) and not trust_import:
                     raise ValueError("Retest import origin requires explicit analyst trust approval")
                 outcome = "Remediated (Verified)"
-                finding.update(status=outcome, reviewer=reviewer, reviewed_at=self.backend.utc_now())
+                finding.update(status=outcome, retest_status=outcome, reviewer=reviewer, reviewed_at=self.backend.utc_now())
                 self.event(database, identifier, reviewer, {"action": "Remediation approved", "run_id": run_id,
                            "rationale": rationale, "evidence": evidence})
             data = {"id": uuid.uuid4().hex, "finding_id": identifier, "baseline_run": baseline["run_id"],
@@ -334,7 +349,7 @@ def cli(argv, backend):
         parser.add_argument("--approve-preconditions-and-impact", action="store_true")
         parser.add_argument("--trust-import-origin", action="store_true")
         parser.add_argument("--include-candidates", action="store_true")
-        parser.add_argument("--format", choices=["json", "csv", "html"], default="json")
+        parser.add_argument("--format", choices=["json", "csv", "html", "xlsx"], default="json")
         parser.add_argument("--destination")
         args = parser.parse_args(argv[1:])
         action = args.action

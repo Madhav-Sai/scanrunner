@@ -87,7 +87,7 @@ class FindingWorkflowTests(unittest.TestCase):
                             "--approve-preconditions-and-impact", "--trust-import-origin")
 
     def test_rule_matrix_for_both_supported_checks(self):
-        for check in findings.RULES:
+        for check in ("smb-protocols", "smb2-security-mode"):
             for positive in (True, False):
                 _, observation = self.imported(positive, 1700000000 + len(check) + int(positive), check=check)
                 self.assertEqual(findings.evaluate(observation)["outcome"], "Potential" if positive else "Not observed")

@@ -7,3 +7,4 @@ __pycache__/
 /verification-*.log
 /lab-output/
 /lab-evidence/
+/.venv-roadmap/

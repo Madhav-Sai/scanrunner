@@ -88,7 +88,7 @@ def benchmark(manifest_path, backend, destination=None):
         outcome, reason = "Inconclusive", "No associated supported observation"
         tool_versions = []
         try:
-            hosts = assessment.normalize_nmap(backend, artifact, [case["address"]],
+            hosts = assessment.normalize_artifact(backend, artifact, [case["address"]],
                                              {"id": "benchmark", "run_id": "benchmark"})
             tool_versions = sorted({host["tool_version"] for host in hosts})
             observations = [{**script, "addresses": [item["address"] for item in host["addresses"]],
