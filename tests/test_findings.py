@@ -311,12 +311,14 @@ class FindingWorkflowTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "inflate"):
             benchmark.benchmark(manifest, sr)
 
-    def test_real_nmap_793_lab_captures_match_independent_wire_ground_truth(self):
-        result = benchmark.benchmark(ROOT / "tests/fixtures/live-smb-7.93/dataset.json", sr)
-        self.assertEqual(len(result["cases"]), 8)
-        for score in result["per_check"].values():
-            self.assertEqual((score["true_positive"], score["true_negative"]), (2, 2))
-            self.assertEqual(score["coverage"]["value"], 1)
+    def test_real_nmap_lab_captures_match_independent_wire_ground_truth(self):
+        for version in ("7.93", "7.95"):
+            with self.subTest(version=version):
+                result = benchmark.benchmark(ROOT / f"tests/fixtures/live-smb-{version}/dataset.json", sr)
+                self.assertEqual(len(result["cases"]), 8)
+                for score in result["per_check"].values():
+                    self.assertEqual((score["true_positive"], score["true_negative"]), (2, 2))
+                    self.assertEqual(score["coverage"]["value"], 1)
 
     def test_unknown_and_conflicting_alias_dialects_are_inconclusive(self):
         _, observation = self.imported()
@@ -330,4 +332,6 @@ class FindingWorkflowTests(unittest.TestCase):
         alternate["children"][0]["text"] = "Message signing enabled and required"
         observation["structured"]["children"].append(alternate)
         observation["output"] += " Message signing enabled and required"
+        self.assertEqual(findings.evaluate(observation)["reason"], "Contradictory dialect evidence")
+        alternate["key"] = "3:1:1"
         self.assertEqual(findings.evaluate(observation)["reason"], "Contradictory dialect evidence")

@@ -1,0 +1,40 @@
+{
+  "profile": "smb2-optional",
+  "address": "172.29.77.12",
+  "port": 445,
+  "server": {
+    "profile": "smb2-optional",
+    "effective_settings": {
+      "server min protocol": "SMB2_02",
+      "server max protocol": "SMB3",
+      "server signing": "if_required"
+    },
+    "configured_smbv1": false,
+    "configured_signing_required": false,
+    "smbd_version": "Version 4.22.11-Debian-4.22.11+dfsg-0+deb13u1",
+    "binary_sha256": "fe9c4505b576c0e276c4270c8fc2db608e3c9e0bc64dd2389875ea8355267817",
+    "config_sha256": "a7d5c264fa959eca98a1cc38d42e2b04716556fd218e3a74660605b941140b1d",
+    "argv": [
+      "/usr/sbin/smbd",
+      "--foreground",
+      "--no-process-group",
+      "--debug-stdout",
+      "--configfile=/etc/samba/smb.conf"
+    ],
+    "captured_at": "2026-11-13T09:38:25.070159+00:00"
+  },
+  "verification": {
+    "smb2_request_hex": "fe534d4240000100000000000000010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000024000100010000000000000000112233445566778899aabbccddeeff00000000000000001002",
+    "smb2_response_hex": "fe534d42400001000000000000000100010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000410001001002000073726c6162000000000000000000000007000000000080000000800000008000a4d545be5273dd01000000000000000080004a0000000000604806062b0601050502a03e303ca00e300c060a2b06010401823702020aa32a3028a0261b246e6f745f646566696e65645f696e5f5246433431373840706c656173655f69676e6f7265",
+    "smb2": {
+      "dialect": "2.1",
+      "security_mode": 1,
+      "signing_required": false
+    },
+    "smb1_request_hex": "ff534d4272000000001853c80000000000000000000000000000d20400000100000c00024e54204c4d20302e313200",
+    "smbv1_accepted": false,
+    "smb1_response_hex": "ff534d4272000000008813c00000000000000000000000000000d2040000010001ffff0000"
+  },
+  "verified_at": "2026-11-13T09:38:30.778794+00:00",
+  "method": "Effective Samba configuration plus independent SMB1 and SMB2 wire negotiation"
+}

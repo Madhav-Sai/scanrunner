@@ -10,10 +10,11 @@ from urllib.parse import urlsplit
 
 import scanrunner_assessment as assessment
 
-RULE_VERSION = "2"
+RULE_VERSION = "3"
 SMB_DIALECTS = {
     "202": "2.0.2", "210": "2.1", "300": "3.0", "302": "3.0.2", "311": "3.1.1",
     "2.0.2": "2.0.2", "2.1": "2.1", "3.0": "3.0", "3.0.2": "3.0.2", "3.1.1": "3.1.1",
+    "2:0:2": "2.0.2", "2:1:0": "2.1", "3:0:0": "3.0", "3:0:2": "3.0.2", "3:1:1": "3.1.1",
 }
 STATUSES = {"Not Tested", "Potential", "Needs Verification", "Confirmed", "False Positive",
             "Accepted Risk", "Inconclusive", "Remediated (Verified)"}

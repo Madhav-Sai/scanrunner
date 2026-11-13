@@ -1,3 +1,5 @@
 tests/fixtures/detection-benchmark/*.xml -text whitespace=cr-at-eol
 tests/fixtures/live-smb-7.93/*.xml -text whitespace=cr-at-eol
 tests/fixtures/live-smb-7.93/*-ground-truth.json -text
+tests/fixtures/live-smb-7.95/*.xml -text whitespace=cr-at-eol
+tests/fixtures/live-smb-7.95/*-ground-truth.json -text
