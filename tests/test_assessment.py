@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-import scanrunner_assessment as assessment
+from scanrunner_lib import scanrunner_assessment as assessment
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("assessment_backend", ROOT / "scanrunner.py")

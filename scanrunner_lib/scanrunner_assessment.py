@@ -1,5 +1,5 @@
 """Offline normalized inventory and evidence-linked assessment records."""
-from scanrunner_help import parser as command_parser
+from scanrunner_lib.scanrunner_help import parser as command_parser
 from contextlib import contextmanager
 import csv
 from datetime import datetime, timezone
@@ -115,7 +115,7 @@ def normalize_nmap(backend, path, target, job, outcome="Imported"):
 
 def normalize_artifact(backend, path, target, job, outcome="Imported"):
     if str(path).endswith(".json"):
-        from scanrunner_probes import normalize
+        from scanrunner_lib.scanrunner_probes import normalize
         return normalize(backend, path, target, job, outcome)
     return normalize_nmap(backend, path, target, job, outcome)
 
@@ -188,7 +188,7 @@ class AssessmentRepository:
                                    "service_state": next((service["state"] for service in record["services"]
                                                           if service["port"] == script["port"] and service["transport"] == script["transport"]), "Not determined"),
                                    "parser_version": PARSER_VERSION, "verification_status": "Needs Verification"}
-                    from scanrunner_findings import evaluate
+                    from scanrunner_lib.scanrunner_findings import evaluate
                     observation["preconditions"] = {key: observation[key] for key in
                         ("source_tool", "host_state", "service_state", "execution_outcome", "scan_completion", "check_execution")}
                     observation["evaluation"] = evaluate(observation)
@@ -255,7 +255,7 @@ def inventory_rows(records):
 
 
 def assessment_report(backend, directory, engagement, records, run_id=None, executive=False, include_candidates=False):
-    import scanrunner_findings as findings
+    from scanrunner_lib import scanrunner_findings as findings
     all_findings = findings.list_findings(directory, engagement, True)
     asset_ids = {record["asset_id"] for record in records}
     all_findings = [finding for finding in all_findings if finding["asset_id"] in asset_ids]
@@ -315,7 +315,7 @@ def export_records(backend, records, destination, output_format):
         with backend.atomic_text(str(destination)) as file:
             file.write(page + "</table>")
     elif output_format == "xlsx":
-        from scanrunner_exports import workbook
+        from scanrunner_lib.scanrunner_exports import workbook
         workbook({"Records": records}, destination)
     else:
         raise ValueError("Unsupported export format")
@@ -348,10 +348,10 @@ def local_operation(backend, output, config):
 
 def cli(argv, backend):
     if argv[0] in {"findings", "retest"}:
-        import scanrunner_findings
+        from scanrunner_lib import scanrunner_findings
         return scanrunner_findings.cli(argv, backend)
     if argv[0] == "benchmark":
-        import scanrunner_benchmark
+        from scanrunner_lib import scanrunner_benchmark
         return scanrunner_benchmark.cli(argv[1:], backend)
     parser = command_parser(argv[0])
     parser.add_argument("--output", "-o", default="results", help="Assessment output directory")
@@ -408,7 +408,7 @@ def cli(argv, backend):
                     with backend.atomic_text(args.destination) as file:
                         json.dump(redact_records(backend, result), file, indent=2)
                 elif args.format == "xlsx":
-                    from scanrunner_exports import workbook
+                    from scanrunner_lib.scanrunner_exports import workbook
                     workbook(redact_records(backend, {"Summary": [result["summary"]],
                         "Inventory": inventory_rows(result.get("inventory", [])), "Findings": result.get("findings", []),
                         "Runs": result.get("runs", []), "Retests": result.get("retests", [])}), args.destination)

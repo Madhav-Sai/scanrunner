@@ -15,7 +15,8 @@ from pathlib import Path
 
 APP = "scanrunner"
 SCRIPT = "scanrunner.py"
-COMPANIONS = ("scanrunner_assessment.py", "scanrunner_findings.py", "scanrunner_benchmark.py", "scanrunner_exports.py", "scanrunner_rules.py", "scanrunner_probes.py", "scanrunner_plugins.py", "scanrunner_operations.py", "scanrunner_workspace.py", "scanrunner_help.py")
+MODULES = ("scanrunner_assessment.py", "scanrunner_findings.py", "scanrunner_benchmark.py", "scanrunner_exports.py", "scanrunner_rules.py", "scanrunner_probes.py", "scanrunner_plugins.py", "scanrunner_operations.py", "scanrunner_workspace.py", "scanrunner_help.py")
+COMPANIONS = tuple("scanrunner_lib/" + name for name in ("__init__.py", *MODULES))
 MARKER_START = "# >>> scanrunner completion >>>"
 MARKER_END = "# <<< scanrunner completion <<<"
 
@@ -171,7 +172,9 @@ def install_windows_launcher(source: Path) -> Path:
     launcher = destination_dir / "scanrunner.cmd"
     shutil.copy2(source, installed_script)
     for companion in companions:
-        shutil.copy2(companion, destination_dir / companion.name)
+        installed_module = destination_dir / companion.relative_to(source.parent)
+        installed_module.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(companion, installed_module)
     launcher.write_text(f'@echo off\r\n"{sys.executable}" "{installed_script}" %*\r\n', encoding="utf-8")
     add_windows_user_path(destination_dir)
     success(f"Installed launcher: {launcher}")

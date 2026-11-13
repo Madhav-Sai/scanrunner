@@ -40,7 +40,7 @@ from collections import Counter, deque
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
-from scanrunner_help import GUIDES, MENU
+from scanrunner_lib.scanrunner_help import GUIDES, MENU
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 
 __version__ = "1.5.0"
@@ -847,8 +847,8 @@ class RunStore:
                     outcome, parser_ok = "INCONCLUSIVE", False
             elif tool == "probe":
                 try:
-                    import scanrunner_probes
-                    import scanrunner_findings
+                    from scanrunner_lib import scanrunner_probes
+                    from scanrunner_lib import scanrunner_findings
                     records = scanrunner_probes.normalize(sys.modules[__name__], Path(job["directory"]) / "probe.json",
                                                          job["target"], {**job, "run_id": self.run_id})
                     record = records[0]
@@ -1197,7 +1197,7 @@ def execute_nmap(target, report, options, use_pn=False, live=False):
         if fatal:
             status, parsed, detail = "FATAL", False, fatal
         if parsed:
-            import scanrunner_assessment as assessment
+            from scanrunner_lib import scanrunner_assessment as assessment
             parsed = False
             records = assessment.normalize_nmap(sys.modules[__name__], _xml_report_path(output), target,
                                                 {**job, "run_id": store.run_id}, status)
@@ -1534,7 +1534,7 @@ def completion_script(shell):
         "--status", "--diff",
     ]
     options.extend("--" + name for name in OPTION_HELP if "--" + name not in options)
-    from scanrunner_help import GUIDES
+    from scanrunner_lib.scanrunner_help import GUIDES
     options.extend(name for name in ["guide", "help", "--whats-new", *GUIDES] if name not in options)
     profiles = " ".join(sorted(SCAN_PROFILES))
     protocols = "smb rdp ldap winrm ssh ftp mssql wmi vnc nfs"
@@ -1585,7 +1585,7 @@ def handle_topic_help():
     """Route standalone version/help requests before argparse validation."""
     arguments = sys.argv[1:]
     if arguments == ["--whats-new"]:
-        from scanrunner_help import whats_new
+        from scanrunner_lib.scanrunner_help import whats_new
         print(whats_new(__version__).strip())
         sys.exit(0)
 
@@ -2420,7 +2420,7 @@ def _run_nxc_command(binary, protocol, target_source, targets, nxc_extra, querie
                                  (target_outcomes[target], store.run_id, target))
     timestamp = datetime.now().strftime('%Y%m%d-%H%M%S-%f')
     raw_path = os.path.join(job['directory'], 'stdout.bin')
-    import scanrunner_plugins
+    from scanrunner_lib import scanrunner_plugins
     scanrunner_plugins.persist_nxc(store, job, rows, protocol)
     rows = [{field: redact_output_text(str(value)) for field, value in row.items()} for row in rows]
     columns = nxc_table_columns(protocol, queries)
@@ -3699,21 +3699,21 @@ def main():
             raise ValueError("Unknown command. Run scanrunner --help to see available tasks")
         sys.argv = [sys.argv[0], *([legacy.get(selected, selected)] if selected else []), "--help"]
     if len(sys.argv) > 1 and sys.argv[1] == "guide":
-        from scanrunner_help import guide
+        from scanrunner_lib.scanrunner_help import guide
         sys.exit(guide(sys.argv[2:]))
     if len(sys.argv) == 2 and sys.argv[1] in {"engagement", "asset", "import", "findings", "retest", "benchmark", "probe", "plugin", "attest", "schedule", "advisory", "template"}:
         sys.argv.append("--help")
     if len(sys.argv) > 1 and sys.argv[1] in {"share", "attest", "trends", "rules", "schedule", "advisory", "template", "tui"}:
-        import scanrunner_operations
+        from scanrunner_lib import scanrunner_operations
         sys.exit(scanrunner_operations.cli(sys.argv[1:], sys.modules[__name__]))
     if len(sys.argv) > 1 and sys.argv[1] == "plugin":
-        import scanrunner_plugins
+        from scanrunner_lib import scanrunner_plugins
         sys.exit(scanrunner_plugins.cli(sys.argv[2:], sys.modules[__name__]))
     if len(sys.argv) > 1 and sys.argv[1] == "probe":
-        import scanrunner_probes
+        from scanrunner_lib import scanrunner_probes
         sys.exit(scanrunner_probes.cli(sys.argv[2:], sys.modules[__name__]))
     if len(sys.argv) > 1 and sys.argv[1] in {"engagement", "inventory", "asset", "import", "observations", "report", "findings", "retest", "benchmark"}:
-        import scanrunner_assessment as assessment
+        from scanrunner_lib import scanrunner_assessment as assessment
         sys.exit(assessment.cli(sys.argv[1:], sys.modules[__name__]))
     handle_topic_help()
     handle_review_commands()
@@ -3728,7 +3728,7 @@ def main():
             raise ValueError("Unsupported NetExec protocol")
         explicit_scope = load_scope(args.scope_file)
         exclusions = list(args.exclude)
-        import scanrunner_assessment as assessment
+        from scanrunner_lib import scanrunner_assessment as assessment
         policy = assessment.engagement_policy(args.output, args.engagement)
         if policy:
             if policy.get("expires_at"):

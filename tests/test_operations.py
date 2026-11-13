@@ -10,10 +10,10 @@ import tempfile
 import unittest
 from unittest import mock
 
-import scanrunner_assessment as assessment
-import scanrunner_findings as findings
-import scanrunner_operations as operations
-import scanrunner_workspace as workspace
+from scanrunner_lib import scanrunner_assessment as assessment
+from scanrunner_lib import scanrunner_findings as findings
+from scanrunner_lib import scanrunner_operations as operations
+from scanrunner_lib import scanrunner_workspace as workspace
 from test_roadmap import backend
 
 

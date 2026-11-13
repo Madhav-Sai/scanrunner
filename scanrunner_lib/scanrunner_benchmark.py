@@ -1,13 +1,13 @@
 """Offline scoring of production checks against supplied ground-truth labels."""
-from scanrunner_help import parser as command_parser
+from scanrunner_lib.scanrunner_help import parser as command_parser
 import hashlib
 import json
 import math
 import ipaddress
 from pathlib import Path
 
-import scanrunner_assessment as assessment
-from scanrunner_findings import evaluate, RULE_VERSION
+from scanrunner_lib import scanrunner_assessment as assessment
+from scanrunner_lib.scanrunner_findings import evaluate, RULE_VERSION
 
 
 def ratio(numerator, denominator):
@@ -127,7 +127,7 @@ def benchmark(manifest_path, backend, destination=None):
     return {"schema_version": 1, "dataset_kind": dataset["dataset_kind"], "dataset_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
             "parser_version": assessment.PARSER_VERSION, "cases": results,
             "rule_version": RULE_VERSION,
-            "implementation_sha256": {name: backend.file_sha256(Path(__file__).with_name(name))
+            "implementation_sha256": {name: backend.file_sha256(Path(backend.__file__) if name == "scanrunner.py" else Path(__file__).with_name(name))
                                       for name in ("scanrunner.py", "scanrunner_assessment.py", "scanrunner_findings.py", "scanrunner_benchmark.py")},
             "per_check": {check_id: counts_summary(value) for check_id, value in counts.items()},
             "limitations": "Metrics describe the supplied labeled dataset. Ground-truth provenance is supplied by its reviewer. Tool execution coverage and environment representativeness require independent review. Positive abstentions count against operational recall."}

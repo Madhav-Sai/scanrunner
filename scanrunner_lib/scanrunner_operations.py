@@ -1,5 +1,5 @@
 """Local sharing, attestation, trends and reusable assessment operations."""
-from scanrunner_help import parser as command_parser
+from scanrunner_lib.scanrunner_help import parser as command_parser
 from collections import Counter
 from datetime import datetime, timezone
 import hashlib
@@ -9,8 +9,8 @@ import os
 from pathlib import Path
 import secrets
 
-import scanrunner_assessment as assessment
-import scanrunner_findings as findings
+from scanrunner_lib import scanrunner_assessment as assessment
+from scanrunner_lib import scanrunner_findings as findings
 
 
 def canonical(value):
@@ -112,7 +112,7 @@ def attestation_payload(backend, directory, engagement, reports):
             raise ValueError("Select at least one exported report")
         return {"schema_version": 1, "algorithm": "HMAC-SHA256", "engagement": engagement, "created_at": backend.utc_now(),
                 "rule_version": findings.RULE_VERSION, "parser_version": assessment.PARSER_VERSION,
-                "implementation_sha256": {name: backend.file_sha256(path) for path in Path(__file__).parent.glob("scanrunner*.py") for name in [path.name]},
+                "implementation_sha256": {name: backend.file_sha256(path) for path in [Path(backend.__file__), *Path(__file__).parent.glob("*.py")] for name in [path.name]},
                 "approval_events_sha256": hashlib.sha256(canonical(events)).hexdigest(),
                 "approvals": [{"finding_id": row["id"], "reviewer": row.get("reviewer"), "reviewed_at": row.get("reviewed_at")} for row in records],
                 "files": files, "limitations": "Shared-key integrity attestation. Identity assurance depends on key custody and local reviewer attestations."}
@@ -150,7 +150,7 @@ def rules_catalog(backend):
 def cli(argv, backend):
     command = argv[0]
     if command in {"schedule", "advisory", "template", "tui"}:
-        import scanrunner_workspace
+        from scanrunner_lib import scanrunner_workspace
         return scanrunner_workspace.cli(argv, backend)
     parser = command_parser(command)
     parser.add_argument("--output", "-o", default="results")

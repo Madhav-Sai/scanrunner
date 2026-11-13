@@ -16,6 +16,26 @@
 
 </div>
 
+## Download and install
+
+Get the **application ZIP** from the [latest release](https://github.com/Madhav-Sai/scanrunner/releases/latest).
+Extract the whole ZIP, open its folder, then run:
+
+```bash
+python3 install.py --user
+scanrunner guide
+```
+
+On Windows, use `python install.py --user` and open a new PowerShell window.
+Keep the extracted folder: the Unix launcher points to it. Nmap is required for
+Nmap scans; optional tools are installed separately. Release assets include a
+`SHA256SUMS.txt` file for checking the ZIP's integrity.
+
+The release ZIP contains the application and user documentation. The GitHub
+source tree also includes development tests, CI and controlled lab tooling.
+Supporting application code lives in `scanrunner_lib/`; older documentation is
+under `docs/archive/`. See [documentation](docs/README.md) for a short index.
+
 ## Start with one complete assessment
 
 ```bash
@@ -1002,8 +1022,8 @@ regression suite on Windows, Linux and macOS.
 
 ## Assessment workflow in 1.5
 
-Install from the complete repository and retain all `scanrunner_*.py` companion
-modules beside `scanrunner.py`. The installer validates and copies the complete
+Install from the complete repository and retain the complete `scanrunner_lib/` folder
+beside `scanrunner.py`. The installer validates and copies the complete
 application payload on Windows.
 Unix launchers continue to use the repository source directory. Existing raw scan
 artifacts and legacy CSV/JSON/HTML views remain available.

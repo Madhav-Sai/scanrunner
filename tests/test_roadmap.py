@@ -12,10 +12,10 @@ import threading
 import unittest
 from unittest import mock
 
-import scanrunner_assessment as assessment
-import scanrunner_findings as findings
-import scanrunner_rules as rules
-import scanrunner_probes as probes
+from scanrunner_lib import scanrunner_assessment as assessment
+from scanrunner_lib import scanrunner_findings as findings
+from scanrunner_lib import scanrunner_rules as rules
+from scanrunner_lib import scanrunner_probes as probes
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("roadmap_backend", ROOT / "scanrunner.py")

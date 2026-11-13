@@ -1,5 +1,5 @@
 """Evidence-bound analyst decisions and conservative configuration checks."""
-from scanrunner_help import parser as command_parser
+from scanrunner_lib.scanrunner_help import parser as command_parser
 from datetime import datetime
 import hashlib
 import json
@@ -8,8 +8,8 @@ import re
 import uuid
 from urllib.parse import urlsplit
 
-import scanrunner_assessment as assessment
-import scanrunner_rules as protocol_rules
+from scanrunner_lib import scanrunner_assessment as assessment
+from scanrunner_lib import scanrunner_rules as protocol_rules
 
 RULE_VERSION = "5"
 SMB_DIALECTS = {

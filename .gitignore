@@ -21,3 +21,4 @@ __pycache__/
 /results/
 *.key
 .DS_Store
+/dist/

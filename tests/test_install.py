@@ -1,6 +1,8 @@
 import importlib.util
 from pathlib import Path
 import tempfile
+import subprocess
+import sys
 import unittest
 from unittest import mock
 
@@ -29,12 +31,15 @@ class InstallerCompatibilityTests(unittest.TestCase):
             self.assertEqual((Path(tmp) / "scanrunner.py").read_bytes(), (ROOT / "scanrunner.py").read_bytes())
             for name in installer.COMPANIONS:
                 self.assertEqual((Path(tmp) / name).read_bytes(), (ROOT / name).read_bytes())
+            installed = subprocess.run([sys.executable, "-B", str(Path(tmp) / "scanrunner.py"), "--help"],
+                                       cwd=tmp, capture_output=True, text=True, timeout=20)
+            self.assertEqual(installed.returncode, 0, installed.stderr)
             self.assertIn("%*", launcher.read_text())
             update_path.assert_called_once_with(Path(tmp))
 
     def test_new_commands_available_in_every_completion_generator(self):
         import scanrunner as sr
-        from scanrunner_help import GUIDES
+        from scanrunner_lib.scanrunner_help import GUIDES
         scripts = [installer.bash_completion(), installer.zsh_completion(),
                    installer.fish_completion(), sr.completion_script("bash"),
                    sr.completion_script("zsh")]

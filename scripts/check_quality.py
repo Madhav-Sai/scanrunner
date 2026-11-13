@@ -7,7 +7,7 @@ import io
 
 ROOT = Path(__file__).resolve().parents[1]
 failures = []
-sources = [ROOT / "scanrunner.py", *ROOT.glob("scanrunner_*.py"), ROOT / "install.py", *ROOT.glob("tests/*.py"), *ROOT.glob("lab/*.py")]
+sources = [ROOT / "scanrunner.py", *ROOT.glob("scanrunner_lib/*.py"), ROOT / "install.py", *ROOT.glob("tests/*.py"), *ROOT.glob("lab/*.py"), *ROOT.glob("scripts/*.py")]
 for path in sources:
     with tokenize.open(path) as source:
         text = source.read()
@@ -21,11 +21,10 @@ for path in sources:
         if line.rstrip() != line:
             failures.append(f"{path.name}:{number} has trailing whitespace")
 
-# The supported deployment is a standalone script plus installer. Verify the
-# distributable retains valid entry points and version metadata without running scans.
+# Verify the launcher, internal package and installer are retained together.
 payload = io.BytesIO()
 with zipfile.ZipFile(payload, "w") as archive:
-    for name in ("scanrunner.py", *[path.name for path in ROOT.glob("scanrunner_*.py")], "install.py", "LICENSE", "README.md"):
+    for name in ("scanrunner.py", *[path.relative_to(ROOT).as_posix() for path in ROOT.glob("scanrunner_lib/*.py")], "install.py", "LICENSE", "README.md"):
         archive.writestr(name, (ROOT / name).read_bytes())
 with zipfile.ZipFile(payload) as archive:
     assert archive.testzip() is None

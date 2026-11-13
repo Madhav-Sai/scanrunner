@@ -1,5 +1,5 @@
 """Explicit scoped FTP authentication and controlled DNS recursion probes."""
-from scanrunner_help import parser as command_parser
+from scanrunner_lib.scanrunner_help import parser as command_parser
 from datetime import datetime, timezone
 import ipaddress
 import json
@@ -9,7 +9,7 @@ import socket
 import struct
 import time
 
-import scanrunner_assessment as assessment
+from scanrunner_lib import scanrunner_assessment as assessment
 
 
 def dns_name(packet, offset, seen=None):
@@ -244,7 +244,7 @@ def cli(argv, backend):
             path.write_text(json.dumps(proof, indent=2), encoding="utf-8")
             records = normalize(backend, path, address, {**job, "run_id": store.run_id}, "COMPLETE")
             assessment.AssessmentRepository(store, backend).ingest(records)
-            from scanrunner_findings import evaluate
+            from scanrunner_lib.scanrunner_findings import evaluate
             candidate = {**records[0]["scripts"][0], "addresses": [address], "host_state": "up", "service_state": "open",
                          "source_tool": "scanrunner-probe", "execution_outcome": "COMPLETE", "scan_completion": "success"}
             valid = evaluate(candidate)["outcome"] != "Inconclusive"

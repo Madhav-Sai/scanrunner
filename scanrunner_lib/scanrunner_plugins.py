@@ -1,5 +1,5 @@
 """Explicit optional scanner adapters with version, scope and evidence contracts."""
-from scanrunner_help import parser as command_parser
+from scanrunner_lib.scanrunner_help import parser as command_parser
 from datetime import datetime, timezone
 import hashlib
 import ipaddress
@@ -11,7 +11,7 @@ import shutil
 import subprocess
 from urllib.parse import urlsplit
 
-import scanrunner_assessment as assessment
+from scanrunner_lib import scanrunner_assessment as assessment
 
 ADAPTERS = {
     "httpx": {"binary": "httpx", "version_args": ["-version", "-duc"], "format": "jsonl", "impact": "HTTP metadata requests"},

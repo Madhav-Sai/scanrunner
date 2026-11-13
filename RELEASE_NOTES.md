@@ -1,5 +1,11 @@
 # scanrunner v1.5.0
 
+Download `scanrunner-1.5.0.zip` from the GitHub release and extract the entire
+folder before installing. A SHA-256 checksum accompanies the ZIP. Supporting
+code now lives in `scanrunner_lib/`, keeping the repository root easier to browse.
+Existing CLI commands remain unchanged. Reinstall from the complete updated
+folder to refresh the application and shell completion.
+
 Adds evidence contracts for RDP, TLS, SSH, controlled FTP/DNS checks and management exposure. New observations preserve prerequisites, source identity and conservative outcomes. Finding templates include explicit missing-value fields, and optional XLSX exports preserve text cell types.
 
 Optional httpx, testssl.sh and reviewed Nuclei adapters use explicit scope, version and authorization checks. Local operations add a terminal menu, queued scheduling, manual CVE snapshots, keyed sharing, asset history, reusable templates and HMAC report/evidence attestations. See [assessment workflows](docs/assessment-workflows.md) for commands and limitations.

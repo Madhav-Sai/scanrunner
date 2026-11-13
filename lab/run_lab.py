@@ -11,8 +11,8 @@ from negotiate import probe
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import scanrunner as backend
-from scanrunner_benchmark import benchmark
-from scanrunner_findings import evaluate
+from scanrunner_lib.scanrunner_benchmark import benchmark
+from scanrunner_lib.scanrunner_findings import evaluate
 
 PROFILES = [
     ("nt1-optional", "172.29.77.10", True, False),

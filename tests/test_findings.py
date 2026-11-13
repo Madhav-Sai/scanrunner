@@ -11,9 +11,9 @@ import unittest
 from unittest import mock
 import xml.etree.ElementTree as ET
 
-import scanrunner_assessment as assessment
-import scanrunner_findings as findings
-import scanrunner_benchmark as benchmark
+from scanrunner_lib import scanrunner_assessment as assessment
+from scanrunner_lib import scanrunner_findings as findings
+from scanrunner_lib import scanrunner_benchmark as benchmark
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("findings_backend", ROOT / "scanrunner.py")

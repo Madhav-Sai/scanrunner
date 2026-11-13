@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-import scanrunner_help as help_content
+from scanrunner_lib import scanrunner_help as help_content
 from test_roadmap import backend
 
 

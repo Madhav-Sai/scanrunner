@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-import scanrunner_plugins as plugins
+from scanrunner_lib import scanrunner_plugins as plugins
 from test_roadmap import backend
 
 

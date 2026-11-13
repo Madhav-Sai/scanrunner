@@ -1,5 +1,5 @@
 """Explicit local scheduling, advisory snapshots, templates and terminal menus."""
-from scanrunner_help import parser as command_parser
+from scanrunner_lib.scanrunner_help import parser as command_parser
 from datetime import datetime, timezone
 import hashlib
 import io
@@ -13,9 +13,9 @@ import sys
 import uuid
 from contextlib import redirect_stdout
 
-import scanrunner_assessment as assessment
-import scanrunner_findings as findings
-from scanrunner_operations import canonical, output_json, read_json
+from scanrunner_lib import scanrunner_assessment as assessment
+from scanrunner_lib import scanrunner_findings as findings
+from scanrunner_lib.scanrunner_operations import canonical, output_json, read_json
 
 
 def schedule_definition(backend, definition, directory, engagement):
@@ -98,7 +98,7 @@ def run_due(backend, store, execute):
                 else:
                     argv.append(value)
                 previous = flag
-            code, state = backend.capture_process([sys.executable, "-B", str(Path(__file__).with_name("scanrunner.py")), *argv], str(directory), timeout=3600)
+            code, state = backend.capture_process([sys.executable, "-B", str(Path(backend.__file__).resolve()), *argv], str(directory), timeout=3600)
             status = "Completed" if code == 0 and state == "Exited" else "Failed"
             detail = "Scheduled command completed" if status == "Completed" else "Scheduled command failed or was interrupted"
         except Exception as error:
