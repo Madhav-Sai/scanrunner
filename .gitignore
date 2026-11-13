@@ -17,3 +17,7 @@ __pycache__/
 /RESUME_NOTES.md
 /ROADMAP_IMPLEMENTATION.md
 /SCANRUNNER_CODEX_MASTER_PLAN.md
+.scanrunner/
+/results/
+*.key
+.DS_Store

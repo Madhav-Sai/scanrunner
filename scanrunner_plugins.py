@@ -123,6 +123,10 @@ def parse_output(tool, path, target):
         if tool == "testssl":
             if row.get("severity") == "FATAL":
                 raise ValueError("TLS scanner reported a fatal execution diagnostic")
+            if row.get("id") == "cmdline_ip-target" and row.get("severity") == "WARN" and row.get("ip") == "/":
+                # testssl 3.2.5 emits this startup diagnostic before assigning its
+                # endpoint. It remains in the raw artifact, outside control facts.
+                continue
             encoded_subject = row.get("ip", "")
             if not isinstance(encoded_subject, str):
                 raise ValueError("Invalid TLS endpoint")
@@ -228,6 +232,13 @@ def cli(argv, backend):
         with assessment.read_database(args.output) as database:
             exists = database.execute("SELECT 1 FROM sqlite_master WHERE name='plugin_observations'").fetchone()
             rows = [json.loads(row[0]) for row in database.execute("SELECT data FROM plugin_observations WHERE engagement=?", (args.engagement,))] if exists else []
+        if rows:
+            verified = {job["id"] for job in backend.review_run_history(args.output)["jobs"] if job["evidence_integrity"] == "Verified"}
+            root = (Path(args.output) / ".scanrunner" / "runs").resolve()
+            for row in rows:
+                path = Path(row["artifact"]).resolve()
+                if not path.is_relative_to(root) or row["job_id"] not in verified or backend.file_sha256(path) != row["raw_sha256"]:
+                    raise ValueError("Plugin observation evidence is missing, modified or outside the assessment store")
         print(json.dumps(assessment.redact_records(backend, rows), indent=2))
         return 0
     if not args.adapter or not args.target or not args.scope_file or not args.expected_version:

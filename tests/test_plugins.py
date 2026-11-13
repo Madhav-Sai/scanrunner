@@ -57,6 +57,9 @@ class PluginTests(unittest.TestCase):
             self.assertEqual([row["outcome"] for row in results], ["Inconclusive", "Inconclusive"])
             path.write_text(json.dumps([{"ip": "127.0.0.1/127.0.0.1", "port": "443", "id": "TLS1", "finding": "not offered", "severity": "INFO"}]))
             self.assertEqual(len(plugins.parse_output("testssl", path, "https://127.0.0.1/")), 1)
+            record = json.loads(path.read_text())[0]
+            path.write_text(json.dumps([{"id": "cmdline_ip-target", "severity": "WARN", "ip": "/", "port": "443", "finding": "Literal IP target"}, record]))
+            self.assertEqual(plugins.parse_output("testssl", path, "https://127.0.0.1/")[0]["evidence_location"], "/records/2")
             path.write_text(json.dumps([{"ip": "198.51.100.1/127.0.0.1", "port": "443", "id": "TLS1", "finding": "offered", "severity": "INFO"}]))
             with self.assertRaises(ValueError):
                 plugins.parse_output("testssl", path, "https://127.0.0.1/")
@@ -84,6 +87,9 @@ class PluginTests(unittest.TestCase):
             self.assertTrue(row["imported"])
             self.assertEqual(row["verification_status"], "Needs Verification")
             self.assertEqual(row["raw_sha256"], hashlib.sha256(artifact.read_bytes()).hexdigest())
+            Path(row["artifact"]).write_text("tampered")
+            with mock.patch("sys.stdout", io.StringIO()), self.assertRaisesRegex(ValueError, "evidence"):
+                plugins.cli(["observations", "--output", str(root / "out")], backend)
 
     def test_isolated_tool_environment_and_fixed_arguments_prevent_implicit_expansion(self):
         with tempfile.TemporaryDirectory() as temporary, mock.patch.dict(os.environ, {"HTTP_PROXY": "http://outside", "NUCLEI_TOKEN": "credential"}):
