@@ -112,11 +112,34 @@ class WorkspaceTests(unittest.TestCase):
         self.assertIn("summary", json.loads(report.read_bytes()))
         self.assertNotIn("inventory", json.loads(report.read_bytes()))
 
+    def test_scheduler_recovery_preserves_history_and_refuses_active_owner(self):
+        import os
+        import socket
+        definition = self.root / "job.json"
+        definition.write_text(json.dumps({"argv": ["-i", "192.0.2.10", "--scope-file", str(self.scope), "--output", str(self.directory),
+            "--engagement", "default", "--yes", "--authorization-note", "Owned fixture"]}))
+        with mock.patch("sys.stdout", io.StringIO()) as output:
+            workspace.cli(["schedule", "add", "--definition", str(definition), "--at", "2000-01-01T00:00:00Z", "--output", str(self.directory)], backend)
+        identifier = json.loads(output.getvalue())["id"]
+        store = backend.RunStore(str(self.directory), {"tool": "local"})
+        with store.connect() as database:
+            database.execute("UPDATE schedules SET status='Running',result=? WHERE id=?", (json.dumps({"owner_pid": os.getpid(), "owner_host": socket.gethostname()}), identifier))
+        with mock.patch("sys.stdout", io.StringIO()), self.assertRaisesRegex(ValueError, "still running"):
+            workspace.cli(["schedule", "recover", "--id", identifier, "--output", str(self.directory)], backend)
+        with mock.patch.object(workspace, "process_alive", return_value=False), mock.patch("sys.stdout", io.StringIO()) as output:
+            workspace.cli(["schedule", "recover", "--id", identifier, "--output", str(self.directory)], backend)
+        self.assertEqual(json.loads(output.getvalue())["status"], "Pending")
+        with store.connect() as database:
+            self.assertTrue(database.execute("SELECT 1 FROM schedule_events WHERE schedule_id=?", (identifier,)).fetchone())
+        store.end("Test completed")
+
     def test_trend_history_preserves_ambiguous_states_and_coverage(self):
         result = operations.trend_report(self.directory, "default", "site")
         self.assertTrue(result["observations"])
         self.assertTrue(any(port["state"] == "open|filtered" for row in result["observations"] for port in row["port_states"]))
         self.assertTrue(all(row["imported"] for row in result["observations"]))
+        self.assertTrue(result["group_runs"])
+        self.assertEqual(sum(row["observed_assets"] for row in result["group_runs"]), len(result["observations"]))
         self.assertNotIn("Remediated", json.dumps(result))
 
     def test_advisory_snapshot_is_manual_immutable_and_banner_match_stays_potential(self):

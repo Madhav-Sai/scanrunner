@@ -86,6 +86,9 @@ python scanrunner.py schedule add --output results --engagement current --defini
 python scanrunner.py schedule list --output results --engagement current
 python scanrunner.py schedule run-due --output results --engagement current
 python scanrunner.py schedule run-due --output results --engagement current --execute
+python scanrunner.py schedule recover --output results --engagement current --id JOB_ID
 ```
 
 `run-due` previews queued identifiers by default. Execution occurs only with `--execute`, and the queue claim prevents duplicate execution. Completion notifications contain the job identifier and status. The application runs queued work when explicitly invoked, so an operating-system scheduler can call this command under the assessor's account.
+
+Recovery retains an event history and refuses to requeue a running local owner. Legacy or foreign owners require an explicit `--owner-stopped` attestation after stopping that execution. Scope, expiry and input hashes are checked again on the next execution.

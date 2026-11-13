@@ -1,5 +1,5 @@
 """Explicit scoped FTP authentication and controlled DNS recursion probes."""
-import argparse
+from scanrunner_help import parser as command_parser
 from datetime import datetime, timezone
 import ipaddress
 import json
@@ -48,11 +48,13 @@ def dns_question(name, recursive):
 
 
 def dns_response(request, response):
-    if len(response) < 12 or response[:2] != request[:2]:
+    if len(request) < 17 or len(response) < 12 or response[:2] != request[:2]:
         raise ValueError("Unassociated DNS response")
     _, flags, questions, answers, _, _ = struct.unpack_from("!HHHHHH", response)
     if not flags & 0x8000 or flags & 0x7800 or flags & 0x0200 or questions != 1 or answers > 128:
         raise ValueError("Invalid or truncated DNS response")
+    if flags & 0x0100 != struct.unpack_from("!H", request, 2)[0] & 0x0100:
+        raise ValueError("DNS response does not echo the requested recursion flag")
     name, offset = dns_name(response, 12)
     requested_name, requested_end = dns_name(request, 12)
     if name != requested_name or response[offset:offset + 4] != request[requested_end:requested_end + 4]:
@@ -97,6 +99,8 @@ def interpret(proof):
     if len(exchanges) != 2:
         raise ValueError("DNS requires nonrecursive and recursive controls")
     packets = [(bytes.fromhex(item["request_hex"]), bytes.fromhex(item["response_hex"])) for item in exchanges]
+    if any(len(request) < 17 or len(response) < 12 for request, response in packets):
+        raise ValueError("Missing DNS wire header")
     if (struct.unpack_from("!H", packets[0][0], 2)[0] != 0 or struct.unpack_from("!H", packets[1][0], 2)[0] != 256
             or packets[0][0][12:] != packets[1][0][12:]):
         raise ValueError("DNS controls do not match")
@@ -115,6 +119,15 @@ def normalize(backend, path, target, job, outcome="COMPLETE"):
     if path.stat().st_size > 1024 * 1024:
         raise ValueError("Probe artifact exceeds size limit")
     proof = json.loads(path.read_bytes())
+    required = {"schema_version", "address", "port", "check_id", "observed_at", "exchanges"}
+    if not isinstance(proof, dict) or not required <= proof.keys() or not isinstance(proof["exchanges"], list) or not 1 <= len(proof["exchanges"]) <= 3:
+        raise ValueError("Invalid probe evidence schema")
+    if (type(proof["schema_version"]) is not int or any(not isinstance(proof[key], str) for key in ("address", "check_id", "observed_at"))
+            or proof["check_id"] == "sr-dns-recursion" and not isinstance(proof.get("expected_answer"), str)):
+        raise ValueError("Invalid probe identity or timestamp")
+    if any(not isinstance(item, dict) or set(item) != {"request_hex", "response_hex"}
+           or any(not isinstance(value, str) or len(value) > 131072 for value in item.values()) for item in proof["exchanges"]):
+        raise ValueError("Invalid protocol transcript")
     address = str(ipaddress.ip_address(proof["address"]))
     targets = [target] if isinstance(target, str) else target
     if not backend.target_in_scope(address, targets) or proof.get("schema_version") != 1 or proof["check_id"] not in {"ftp-anon", "sr-dns-recursion"}:
@@ -170,7 +183,7 @@ def ftp_exchange(address, port, exchanges):
 
 
 def cli(argv, backend):
-    parser = argparse.ArgumentParser(prog="scanrunner probe")
+    parser = command_parser("probe")
     parser.add_argument("kind", choices=["ftp-anon", "dns-recursion"])
     parser.add_argument("--ip", required=True)
     parser.add_argument("--port", type=int)

@@ -1,3 +1,15 @@
+# scanrunner v1.5.0
+
+Adds evidence contracts for RDP, TLS, SSH, controlled FTP/DNS checks and management exposure. New observations preserve prerequisites, source identity and conservative outcomes. Finding templates include explicit missing-value fields, and optional XLSX exports preserve text cell types.
+
+Optional httpx, testssl.sh and reviewed Nuclei adapters use explicit scope, version and authorization checks. Local operations add a terminal menu, queued scheduling, manual CVE snapshots, keyed sharing, asset history, reusable templates and HMAC report/evidence attestations. See [assessment workflows](docs/assessment-workflows.md) for commands and limitations.
+
+The profile catalog adds baseline, SSH, DNS, AD and TLS workflows. TLS cipher enumeration now requires explicit authorization. Application parser revision 4 invalidates earlier completion fingerprints. Rule revision 5 requires renewed review of previously confirmed findings before final export.
+
+The main help groups commands by task. `scanrunner guide` walks through a complete first scan, with additional walkthroughs for reports, findings, optional tools, sharing and scheduling. `scanrunner --whats-new` lists new features, and command help includes prerequisites, examples and a next action.
+
+Live terminal controls preserve output newline processing, fixing diagonal/scattered scanner output. Exact evidence captures and explicit analyst confirmation remain part of the assessment workflow.
+
 # scanrunner v1.3.0
 
 Accuracy fixes for how results are parsed, classified and reconciled, plus

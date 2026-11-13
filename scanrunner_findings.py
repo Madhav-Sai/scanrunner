@@ -1,5 +1,5 @@
 """Evidence-bound analyst decisions and conservative configuration checks."""
-import argparse
+from scanrunner_help import parser as command_parser
 from datetime import datetime
 import hashlib
 import json
@@ -11,7 +11,7 @@ from urllib.parse import urlsplit
 import scanrunner_assessment as assessment
 import scanrunner_rules as protocol_rules
 
-RULE_VERSION = "4"
+RULE_VERSION = "5"
 SMB_DIALECTS = {
     "202": "2.0.2", "210": "2.1", "300": "3.0", "302": "3.0.2", "311": "3.1.1",
     "2.0.2": "2.0.2", "2.1": "2.1", "3.0": "3.0", "3.0.2": "3.0.2", "3.1.1": "3.1.1",
@@ -330,7 +330,7 @@ def list_findings(directory, engagement, include_candidates=False):
 
 
 def cli(argv, backend):
-    parser = argparse.ArgumentParser(prog="scanrunner " + argv[0])
+    parser = command_parser(argv[0])
     parser.add_argument("--output", "-o", default="results")
     parser.add_argument("--engagement", default="default")
     parser.add_argument("--json", action="store_true")

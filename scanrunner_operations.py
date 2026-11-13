@@ -1,5 +1,5 @@
 """Local sharing, attestation, trends and reusable assessment operations."""
-import argparse
+from scanrunner_help import parser as command_parser
 from collections import Counter
 from datetime import datetime, timezone
 import hashlib
@@ -66,7 +66,20 @@ def trend_report(directory, engagement, group_by):
                                                                   for service in record["services"]],
                        "open_services": sum(service["state"] == "open" for service in record["services"]),
                        "absence_interpretation": "Missing observations require coverage and control-equivalence review"})
-    return {"schema_version": 1, "engagement": engagement, "group_by": group_by, "observations": series,
+    grouped = {}
+    for row in series:
+        group = row["group"] if isinstance(row["group"], str) else "Not determined"
+        value = grouped.setdefault((group, row["run_id"]), {"assets": set(), "services": set(), "imported_assets": set(), "outcomes": Counter()})
+        value["assets"].add(row["asset_id"])
+        value["outcomes"][row["execution_outcome"]] += 1
+        if row["imported"]:
+            value["imported_assets"].add(row["asset_id"])
+        value["services"].update((row["asset_id"], port["transport"], port["port"]) for port in row["port_states"] if port["state"] == "open")
+    comparisons = [{"group": group, "run_id": run, "observed_assets": len(value["assets"]), "open_service_observations": len(value["services"]),
+                    "imported_assets": len(value["imported_assets"]), "outcome_counts": dict(value["outcomes"]), "coverage_equivalence": "Not established"}
+                   for (group, run), value in grouped.items()]
+    return {"schema_version": 1, "engagement": engagement, "group_by": group_by, "observations": series, "group_runs": comparisons,
+            "metadata_scope": "Current assessor metadata applied to historical observations",
             "coverage": dict(Counter(record["execution_outcome"] for record in records)),
             "limitations": "Observation history preserves source and coverage. Remediation requires approved comparable retests."}
 
@@ -138,7 +151,7 @@ def cli(argv, backend):
     if command in {"schedule", "advisory", "template", "tui"}:
         import scanrunner_workspace
         return scanrunner_workspace.cli(argv, backend)
-    parser = argparse.ArgumentParser(prog="scanrunner " + command)
+    parser = command_parser(command)
     parser.add_argument("--output", "-o", default="results")
     parser.add_argument("--engagement", default="default")
     parser.add_argument("--destination")

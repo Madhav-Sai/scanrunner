@@ -42,7 +42,7 @@ class ProtocolContractTests(unittest.TestCase):
         negative = observation("rdp-enum-encryption", "SSL: FAILED (HYBRID_REQUIRED_BY_SERVER)\nNative RDP: FAILED (HYBRID_REQUIRED_BY_SERVER)\nCredSSP (NLA): SUCCESS")
         self.assertEqual(findings.evaluate(positive)["outcome"], "Potential")
         self.assertEqual(findings.evaluate(negative)["outcome"], "Not observed")
-        for value in ("CredSSP (NLA): SUCCESS", "SSL: Unknown", "malformed", "SSL: SUCCESS\nSSL: FAILED (HYBRID_REQUIRED_BY_SERVER)"):
+        for value in ("CredSSP (NLA): SUCCESS", "SSL: Unknown", "malformed", "SSL: SUCCESS\nFailed to connect to server", "SSL: SUCCESS\nSSL: FAILED (HYBRID_REQUIRED_BY_SERVER)"):
             self.assertEqual(findings.evaluate(observation("rdp-enum-encryption", value))["outcome"], "Inconclusive")
 
     def test_tls_negotiated_protocol_and_cipher_evidence(self):
@@ -129,7 +129,8 @@ class ProtocolContractTests(unittest.TestCase):
         denied = copy.deepcopy(proof)
         for item in denied["exchanges"]:
             request = bytes.fromhex(item["request_hex"])
-            item["response_hex"] = (request[:2] + struct.pack("!HHHHH", 0x8085, 1, 0, 0, 0) + request[12:]).hex()
+            flags = 0x8085 | (struct.unpack_from("!H", request, 2)[0] & 0x0100)
+            item["response_hex"] = (request[:2] + struct.pack("!HHHHH", flags, 1, 0, 0, 0) + request[12:]).hex()
         self.assertIn("rejected", probes.interpret(denied))
 
     def test_native_ftp_cli_persists_reparseable_evidence_and_requires_review(self):

@@ -1,5 +1,5 @@
 """Explicit local scheduling, advisory snapshots, templates and terminal menus."""
-import argparse
+from scanrunner_help import parser as command_parser
 from datetime import datetime, timezone
 import hashlib
 import io
@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import socket
 import sys
 import uuid
 from contextlib import redirect_stdout
@@ -64,8 +65,10 @@ def run_due(backend, store, execute):
     for row in rows:
         with store.connect() as database:
             database.execute("BEGIN IMMEDIATE")
-            if database.execute("UPDATE schedules SET status='Running' WHERE id=? AND status='Pending'", (row["id"],)).rowcount != 1:
+            owner = {"owner_pid": os.getpid(), "owner_host": socket.gethostname(), "started_at": backend.utc_now()}
+            if database.execute("UPDATE schedules SET status='Running',result=? WHERE id=? AND status='Pending'", (json.dumps(owner), row["id"])).rowcount != 1:
                 continue
+            database.execute("INSERT INTO schedule_events VALUES (?, ?, ?)", (row["id"], backend.utc_now(), json.dumps({"status": "Running", **owner})))
         status, code, detail = "Failed", None, "Execution failed"
         directory = Path(store.directory) / ".scanrunner" / "schedules" / row["id"] / uuid.uuid4().hex
         directory.mkdir(parents=True, mode=0o700)
@@ -107,18 +110,59 @@ def run_due(backend, store, execute):
                      "notification": {"job_id": row["id"], "status": status}}
             with store.connect() as database:
                 database.execute("UPDATE schedules SET status=?,result=? WHERE id=?", (status, json.dumps(event), row["id"]))
+                database.execute("INSERT INTO schedule_events VALUES (?, ?, ?)", (row["id"], backend.utc_now(), json.dumps(event)))
             results.append(event)
     return results
+
+
+def process_alive(pid):
+    if type(pid) is not int or pid <= 0:
+        return True
+    if os.name == "nt":
+        import ctypes
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.OpenProcess.restype = ctypes.c_void_p
+        kernel.OpenProcess.argtypes = [ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong]
+        kernel.CloseHandle.argtypes = [ctypes.c_void_p]
+        kernel.GetExitCodeProcess.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong)]
+        handle = kernel.OpenProcess(0x1000, False, pid)
+        if not handle:
+            return ctypes.get_last_error() != 87
+        try:
+            code = ctypes.c_ulong()
+            return not kernel.GetExitCodeProcess(handle, ctypes.byref(code)) or code.value == 259
+        finally:
+            kernel.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
 
 
 def advisory_entries(data):
     if not isinstance(data, dict) or data.get("dataType") != "CVE_RECORD" or not str(data.get("dataVersion", "")).startswith("5."):
         raise ValueError("Advisory snapshots require CVE JSON 5 records")
     metadata = data.get("cveMetadata", {})
+    if not isinstance(metadata, dict):
+        raise ValueError("CVE metadata must be a record")
     identifier = metadata.get("cveId", "")
     if not re.fullmatch(r"CVE-\d{4}-\d{4,}", identifier) or metadata.get("state") not in {"PUBLISHED", "REJECTED"}:
         raise ValueError("Invalid CVE record identity/state")
-    return identifier, data.get("containers", {}).get("cna", {}).get("affected", [])
+    containers = data.get("containers", {})
+    if not isinstance(containers, dict) or not isinstance(containers.get("cna", {}), dict):
+        raise ValueError("Invalid CVE container schema")
+    affected = containers.get("cna", {}).get("affected", [])
+    if not isinstance(affected, list) or len(affected) > 1000:
+        raise ValueError("Invalid affected-product list")
+    for product in affected:
+        if not isinstance(product, dict) or not isinstance(product.get("versions", []), list):
+            raise ValueError("Invalid affected product")
+        if any(not isinstance(version, dict) or not isinstance(version.get("version"), str) for version in product.get("versions", [])):
+            raise ValueError("Invalid affected version")
+    return identifier, affected
 
 
 def correlate(backend, directory, engagement):
@@ -156,7 +200,10 @@ def terminal_menu(backend, directory, engagement, once=False):
         print("1 Inventory  2 Findings  3 Queue/history  4 Evidence  5 Review  6 Export  7 Engagements  0 Exit")
         if once:
             return 0
-        choice = input("Choose action > ").strip()
+        try:
+            choice = input("Choose action > ").strip()
+        except EOFError:
+            return 0
         if choice == "0":
             return 0
         try:
@@ -195,11 +242,13 @@ def terminal_menu(backend, directory, engagement, once=False):
                 engagement = input("Select engagement ID > ").strip() or engagement
         except (ValueError, OSError) as error:
             print(str(error))
+        except SystemExit:
+            print("Command input was rejected. Review the displayed usage and try again.")
 
 
 def cli(argv, backend):
     command = argv[0]
-    parser = argparse.ArgumentParser(prog="scanrunner " + command)
+    parser = command_parser(command)
     parser.add_argument("--output", "-o", default="results")
     parser.add_argument("--engagement", default="default")
     if command == "tui":
@@ -207,15 +256,17 @@ def cli(argv, backend):
         args = parser.parse_args(argv[1:])
         return terminal_menu(backend, args.output, args.engagement, args.once)
     if command == "schedule":
-        parser.add_argument("action", choices=["add", "list", "cancel", "run-due"])
+        parser.add_argument("action", choices=["add", "list", "cancel", "recover", "run-due"])
         parser.add_argument("--definition")
         parser.add_argument("--at")
         parser.add_argument("--id")
         parser.add_argument("--execute", action="store_true")
+        parser.add_argument("--owner-stopped", action="store_true", help="Explicitly attest an unverifiable legacy/foreign owner has stopped")
         args = parser.parse_args(argv[1:])
         with assessment.local_operation(backend, args.output, {"tool": "local", "engagement": args.engagement}) as store:
             with store.connect() as database:
                 database.execute("CREATE TABLE IF NOT EXISTS schedules (id TEXT PRIMARY KEY, engagement TEXT, due TEXT, status TEXT, data TEXT, result TEXT)")
+                database.execute("CREATE TABLE IF NOT EXISTS schedule_events (schedule_id TEXT, at_utc TEXT, data TEXT)")
             if args.action == "add":
                 definition = schedule_definition(backend, read_json(args.definition), args.output, args.engagement)
                 due = assessment.parse_timestamp(args.at).astimezone(timezone.utc).isoformat()
@@ -225,6 +276,22 @@ def cli(argv, backend):
                 output_json(backend, {"id": identifier, "due": due, "status": "Pending"})
             elif args.action == "run-due":
                 output_json(backend, run_due(backend, store, args.execute))
+            elif args.action == "recover":
+                with store.connect() as database:
+                    database.execute("BEGIN IMMEDIATE")
+                    row = database.execute("SELECT status,result FROM schedules WHERE id=? AND engagement=?", (args.id, args.engagement)).fetchone()
+                    if row is None or row["status"] not in {"Running", "Failed", "Interrupted"}:
+                        raise ValueError("Select a failed or interrupted scheduled job")
+                    owner = json.loads(row["result"]) if row["result"] else {}
+                    if row["status"] == "Running":
+                        verifiable = owner.get("owner_host") == socket.gethostname() and type(owner.get("owner_pid")) is int
+                        if verifiable and process_alive(owner["owner_pid"]):
+                            raise ValueError("Scheduled owner is still running")
+                        if not verifiable and not args.owner_stopped:
+                            raise ValueError("Owner cannot be verified locally. Stop it before using --owner-stopped")
+                    database.execute("INSERT INTO schedule_events VALUES (?, ?, ?)", (args.id, backend.utc_now(), json.dumps({"action": "Recovered", "previous": dict(row)})))
+                    database.execute("UPDATE schedules SET status='Pending',result=NULL WHERE id=?", (args.id,))
+                output_json(backend, {"id": args.id, "status": "Pending", "authorization_revalidation": "Required before execution"})
             else:
                 with store.connect() as database:
                     if args.action == "cancel":

@@ -40,6 +40,7 @@ from collections import Counter, deque
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
+from scanrunner_help import GUIDES, MENU
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 
 __version__ = "1.5.0"
@@ -96,48 +97,7 @@ HELP_BANNER = r"""
 
                      scanrunner by Madhav"""
 
-TOP_LEVEL_HELP = HELP_BANNER + r"""
-Automated Nmap and NetExec workflow for authorized assessments.
-
-Usage:
-  scanrunner <target> [mode/options]
-
-Start here:
-  scanrunner -f targets.txt -sV               Run Nmap with raw arguments
-  scanrunner -i 10.10.10.10 --template quick  Run an Nmap template
-  scanrunner -f targets.txt -nxc smb --allow-intrusive --authorization-note AUTH_REF
-  scanrunner -f targets.txt --split 3          Split a target file
-
-Review results (no scanning):
-  scanrunner --status [DIR]                    Summarise an output folder
-  scanrunner --diff OLD_DIR NEW_DIR            Compare open ports between two runs
-  scanrunner inventory --help                 Review normalized assets and services
-  scanrunner findings --help                  Create and review evidence-linked findings
-  scanrunner probe --help                     Run explicitly scoped FTP/DNS controls
-  scanrunner plugin --help                    Use an explicitly enabled optional scanner
-  scanrunner rules --help                     Inspect versioned evidence contracts
-  scanrunner trends --help                    Review coverage-aware asset history
-  scanrunner share --help                     Preview an anonymized allowlisted export
-  scanrunner attest --help                    Authenticate report and evidence manifests
-  scanrunner schedule --help                  Manage explicitly queued local scans
-  scanrunner advisory --help                  Import local CVE JSON snapshots
-  scanrunner template --help                  Reuse engagement and report settings
-  scanrunner tui --help                       Open the local terminal assessment menu
-  scanrunner retest --help                    Compare control-specific evidence
-  scanrunner benchmark --help                 Score checks against supplied labels
-
-Focused help:
-  scanrunner --nmap -h       Nmap workflow and options
-  scanrunner --template -h   Nmap templates
-  scanrunner -nxc -h         NetExec mode, queries, and examples
-  scanrunner --split -h      Target splitting
-  scanrunner --reports -h    Output and reporting
-
-Version:
-  scanrunner -v | --version
-
-Use `scanrunner --help-all` only when you need the complete reference.
-"""
+TOP_LEVEL_HELP = HELP_BANNER + "\n\n" + MENU.format(version=__version__)
 
 
 
@@ -1357,12 +1317,12 @@ Aliases:
 
 Templates:
   quick, full, full-fast, web, web-enum, ssl-ciphers, smb-audit,
-  rdp-audit, udp
+  rdp-audit, udp, safe-baseline, ssh-audit, dns-audit, ad-discovery, tls-audit
 
 Run --list-templates or --template -vv to view the exact arguments in each template.
 
 Examples:
-  scanrunner -f targets.txt --template ssl-ciphers
+  scanrunner -f targets.txt --profile tls-audit --allow-intrusive --authorization-note AUTH_REF
   scanrunner -f targets.txt --preset full-fast --host-timeout 10m
 
 Templates are optional. You can always use raw Nmap arguments instead:
@@ -1403,10 +1363,10 @@ Usage:
   scanrunner (-f targets.txt | -i target) [scanrunner options] [Nmap arguments]
 
 Examples:
-  scanrunner -f targets.txt -sV -A -Pn --min-rate 200 -p-
+  scanrunner -f targets.txt --scope-file scope.txt --profile full --dry-run
   scanrunner -i 10.10.10.10 -o results -sS -sV
-  scanrunner -f targets.txt --template smb-audit
-  scanrunner -f targets.txt -ok -sV -A
+  scanrunner -f targets.txt --profile smb-audit --allow-intrusive --authorization-note AUTH_REF
+  scanrunner -f targets.txt -ok -sV
 
 Ping decision helpers:
   -ok, --skip-no-ping     Skip and log wrapper ping failures without prompting
@@ -1419,9 +1379,9 @@ Large target lists:
   time in this window. See --split -h for the offer's details, or --split /
   --split-size to prepare separate files yourself ahead of time.
 
-All unrecognized arguments are passed directly to Nmap. Use nmap --help for
-the complete current list of Nmap flags and NSE scripts. Use -v or -vv for
-more verbose Nmap output.
+Supported extra arguments are validated before being passed to Nmap.
+Use --dry-run to check the selected command and scope. Unreviewed scripts and
+target-expanding options are refused. Use -v or -vv for more Nmap output.
 
 Flags that overlap with scanrunner's own:
   -iL FILE                Accepted; treated as -f FILE
@@ -1622,6 +1582,10 @@ _scanrunner "$@"
 def handle_topic_help():
     """Route standalone version/help requests before argparse validation."""
     arguments = sys.argv[1:]
+    if arguments == ["--whats-new"]:
+        from scanrunner_help import whats_new
+        print(whats_new(__version__).strip())
+        sys.exit(0)
 
     if len(arguments) == 2 and arguments[0] == "--completion":
         shell = arguments[1].lower()
@@ -3724,6 +3688,19 @@ def bounded_futures(executor, function, targets, limit):
 def main():
     global COLORS_ENABLED, ACTIVE_SCOPE, ACTIVE_STORE, ACTIVE_CONFIG
     _save_terminal()
+    if len(sys.argv) > 1 and sys.argv[1] == "help":
+        if len(sys.argv) > 3:
+            raise ValueError("Use scanrunner help COMMAND")
+        selected = sys.argv[2] if len(sys.argv) == 3 else None
+        legacy = {"nmap": "--nmap", "profiles": "--profile", "reports": "--reports", "nxc": "-nxc", "split": "--split"}
+        if selected and selected not in GUIDES and selected not in legacy and selected != "guide":
+            raise ValueError("Unknown command. Run scanrunner --help to see available tasks")
+        sys.argv = [sys.argv[0], *([legacy.get(selected, selected)] if selected else []), "--help"]
+    if len(sys.argv) > 1 and sys.argv[1] == "guide":
+        from scanrunner_help import guide
+        sys.exit(guide(sys.argv[2:]))
+    if len(sys.argv) == 2 and sys.argv[1] in {"engagement", "asset", "import", "findings", "retest", "benchmark", "probe", "plugin", "attest", "schedule", "advisory", "template"}:
+        sys.argv.append("--help")
     if len(sys.argv) > 1 and sys.argv[1] in {"share", "attest", "trends", "rules", "schedule", "advisory", "template", "tui"}:
         import scanrunner_operations
         sys.exit(scanrunner_operations.cli(sys.argv[1:], sys.modules[__name__]))

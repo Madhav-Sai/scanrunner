@@ -16,6 +16,28 @@
 
 </div>
 
+## Start with one complete assessment
+
+```bash
+scanrunner guide
+scanrunner --whats-new
+```
+
+The guide walks through preparing scope, previewing a baseline scan, running it,
+reading inventory and exporting an HTML report. It prints copyable commands.
+Use your authorized IP with `scanrunner guide --target YOUR_IP`.
+
+```bash
+scanrunner guide --task reports
+scanrunner guide --task findings
+scanrunner guide --task optional-tools
+scanrunner help report
+```
+
+Every assessment command's help explains its purpose, prerequisites, examples and
+next step. [Assessment workflows](docs/assessment-workflows.md) covers optional
+tools, XLSX, private sharing, scheduling and other local features.
+
 ---
 
 ## Overview
@@ -691,6 +713,7 @@ sends no network traffic. The one exception is a single real-Nmap check against
 a listener on 127.0.0.1, which is skipped when Nmap isn't installed:
 
 ```bash
+python3 -m pip install -r requirements-optional.txt
 python3 -m unittest discover -s tests -v
 ```
 
@@ -953,10 +976,11 @@ Run `python scripts/check_quality.py` for offline syntax, safety lint and instal
 archive checks. The GitHub Actions workflow runs those checks and the offline
 regression suite on Windows, Linux and macOS.
 
-## Offline assessment workflow in 1.4
+## Assessment workflow in 1.5
 
-Install and retain `scanrunner.py`, `scanrunner_assessment.py`, `scanrunner_findings.py`
-and `scanrunner_benchmark.py` together. The installer copies these modules on Windows.
+Install from the complete repository and retain all `scanrunner_*.py` companion
+modules beside `scanrunner.py`. The installer validates and copies the complete
+application payload on Windows.
 Unix launchers continue to use the repository source directory. Existing raw scan
 artifacts and legacy CSV/JSON/HTML views remain available.
 
@@ -987,9 +1011,11 @@ Host-script evidence can use a sole eligible SMB endpoint under the documented
 [Nmap SMB library selection](https://svn.nmap.org/nmap/nselib/smb.lua). The observation
 records this derivation and its source port field. Multiple eligible endpoints,
 custom script arguments, failed checks and conflicting results require further
-verification. Automated TLS, SSH, DNS recursion, anonymous
-FTP and RDP finding rules remain pending validated evidence contracts and fixtures.
-Existing scanner integrations continue to preserve their raw results.
+verification. Additional contracts cover RDP negotiation, TLS protocol/cipher evidence,
+certificate validity, SSH algorithm offers, explicit anonymous FTP authentication and
+controlled DNS recursion. Open management-associated ports produce exposure observations.
+See [assessment workflows](docs/assessment-workflows.md) for supported evidence,
+optional scanners, workbook exports, private sharing, scheduling and local operations.
 
 Use `findings review --help` for supported decisions. Confirmation requires the
 reviewer's identity and rationale, an explicit approval of prerequisites and impact,
@@ -1059,7 +1085,7 @@ RDP `all` queries cover OS, hostname and NLA fields. Unsupported protocol/query
 combinations fail before scanner execution. `--port` accepts an integer from 1 to
 65535, and completion evidence must match the selected endpoint.
 
-Evidence parser revision 3 invalidates earlier completion fingerprints. Version
+Evidence parser revision 4 invalidates earlier completion fingerprints. Version
 compatibility remains important because the upstream SMB implementation documents
 earlier SMB 3.1.1 signing interpretation pitfalls. Independent lab measurements must
 pin the scanner version and verify the actual server policy.

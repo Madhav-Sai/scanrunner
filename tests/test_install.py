@@ -27,7 +27,7 @@ class InstallerCompatibilityTests(unittest.TestCase):
                 mock.patch.object(installer, "add_windows_user_path") as update_path:
             launcher = installer.install_windows_launcher(ROOT / "scanrunner.py")
             self.assertEqual((Path(tmp) / "scanrunner.py").read_bytes(), (ROOT / "scanrunner.py").read_bytes())
-            for name in ("scanrunner_assessment.py", "scanrunner_findings.py", "scanrunner_benchmark.py"):
+            for name in installer.COMPANIONS:
                 self.assertEqual((Path(tmp) / name).read_bytes(), (ROOT / name).read_bytes())
             self.assertIn("%*", launcher.read_text())
             update_path.assert_called_once_with(Path(tmp))

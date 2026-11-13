@@ -25,7 +25,8 @@ def dns(port, recursion):
             if len(request) < 17:
                 continue
             answer = recursion and bool(request[2] & 1)
-            response = request[:2] + struct.pack("!HHHHH", 0x8180 if answer else 0x8085, 1, int(answer), 0, 0) + request[12:]
+            flags = (0x8180 if answer else 0x8085) | (struct.unpack_from("!H", request, 2)[0] & 0x0100)
+            response = request[:2] + struct.pack("!HHHHH", flags, 1, int(answer), 0, 0) + request[12:]
             if answer:
                 response += b"\xc0\x0c" + struct.pack("!HHIH", 1, 1, 60, 4) + socket.inet_aton("203.0.113.9")
             server.sendto(response, peer)

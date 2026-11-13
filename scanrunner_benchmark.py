@@ -1,5 +1,5 @@
 """Offline scoring of production checks against supplied ground-truth labels."""
-import argparse
+from scanrunner_help import parser as command_parser
 import hashlib
 import json
 import math
@@ -134,7 +134,7 @@ def benchmark(manifest_path, backend, destination=None):
 
 
 def cli(argv, backend):
-    parser = argparse.ArgumentParser(prog="scanrunner benchmark")
+    parser = command_parser("benchmark")
     parser.add_argument("dataset")
     parser.add_argument("--destination", required=True)
     args = parser.parse_args(argv)

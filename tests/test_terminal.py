@@ -60,7 +60,12 @@ class TerminalModeTests(unittest.TestCase):
                     "import time; time.sleep(.2); print('PORT STATE', flush=True); print('22/tcp open', flush=True)"], temporary, timeout=10, live=True)
                 self.assertEqual((code, state), (0, "Exited"))
                 self.assertEqual((Path(temporary) / "stdout.bin").read_bytes(), b"PORT STATE\n22/tcp open\n")
-                self.assertEqual(termios.tcgetattr(slave), saved)
+                restored = termios.tcgetattr(slave)
+                # macOS may set PENDIN when canonical input resumes. Compare
+                # user-controlled settings while excluding that kernel marker.
+                restored[3] &= ~getattr(termios, "PENDIN", 0)
+                saved[3] &= ~getattr(termios, "PENDIN", 0)
+                self.assertEqual(restored, saved)
             stop.wait(0.1)
             self.assertIn(b"PORT STATE\r\n22/tcp open\r\n", displayed)
         finally:

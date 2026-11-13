@@ -15,7 +15,7 @@ from pathlib import Path
 
 APP = "scanrunner"
 SCRIPT = "scanrunner.py"
-COMPANIONS = ("scanrunner_assessment.py", "scanrunner_findings.py", "scanrunner_benchmark.py", "scanrunner_exports.py", "scanrunner_rules.py", "scanrunner_probes.py", "scanrunner_plugins.py", "scanrunner_operations.py", "scanrunner_workspace.py")
+COMPANIONS = ("scanrunner_assessment.py", "scanrunner_findings.py", "scanrunner_benchmark.py", "scanrunner_exports.py", "scanrunner_rules.py", "scanrunner_probes.py", "scanrunner_plugins.py", "scanrunner_operations.py", "scanrunner_workspace.py", "scanrunner_help.py")
 MARKER_START = "# >>> scanrunner completion >>>"
 MARKER_END = "# <<< scanrunner completion <<<"
 
@@ -39,6 +39,8 @@ OPTIONS.extend([
     "--dry-run", "--json", "--engagement", "--process-timeout", "--global-concurrency",
     "--subnet-concurrency", "--scan-rate", "--allow-intrusive", "--authorization-note",
     "--history", "--verify-evidence", "--scope-snapshot",
+    "--whats-new", "guide", "help", "engagement", "inventory", "observations", "findings", "report", "retest", "import", "asset",
+    "probe", "plugin", "rules", "trends", "share", "attest", "schedule", "advisory", "template", "tui", "benchmark",
 ])
 
 

@@ -1,5 +1,5 @@
 """Offline normalized inventory and evidence-linked assessment records."""
-import argparse
+from scanrunner_help import parser as command_parser
 from contextlib import contextmanager
 import csv
 from datetime import datetime, timezone
@@ -200,7 +200,7 @@ class AssessmentRepository:
 def read_database(directory):
     path = Path(directory).resolve() / ".scanrunner" / "scanrunner.sqlite3"
     if not path.is_file():
-        raise ValueError("No assessment database found")
+        raise ValueError("No assessment database found. Start with 'scanrunner guide', or use 'scanrunner import --help' for existing XML")
     database = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=30)
     database.row_factory = sqlite3.Row
     try:
@@ -353,7 +353,7 @@ def cli(argv, backend):
     if argv[0] == "benchmark":
         import scanrunner_benchmark
         return scanrunner_benchmark.cli(argv[1:], backend)
-    parser = argparse.ArgumentParser(prog="scanrunner " + argv[0])
+    parser = command_parser(argv[0])
     parser.add_argument("--output", "-o", default="results", help="Assessment output directory")
     parser.add_argument("--engagement", default="default")
     command = argv[0]

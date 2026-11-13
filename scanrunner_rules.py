@@ -41,6 +41,8 @@ def assess(observation):
         states = {}
         for line in output.splitlines():
             match = re.fullmatch(r"\s*(Native RDP|SSL|CredSSP \(NLA\)):\s*(SUCCESS|FAILED \(HYBRID_REQUIRED_BY_SERVER\))\s*", line)
+            if "failed" in line.lower() and match is None:
+                return "Inconclusive", "RDP check contains an unresolved failure"
             if match:
                 states.setdefault(match[1], set()).add(match[2])
         if any(len(value) != 1 for value in states.values()):

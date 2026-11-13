@@ -1,5 +1,5 @@
 """Explicit optional scanner adapters with version, scope and evidence contracts."""
-import argparse
+from scanrunner_help import parser as command_parser
 from datetime import datetime, timezone
 import hashlib
 import ipaddress
@@ -91,7 +91,7 @@ def build_argv(tool, binary, target, directory, template=None):
         return [binary, "-u", target, "-t", str(template), "-jsonl", "-silent", "-no-stdin", "-duc", "-ni", "-dr",
                 "-config", config, "-c", "1", "-bs", "1", "-rl", "1", "-timeout", "10", "-retries", "0", "-nh"]
     return [binary, "--quiet", "--warnings", "off", "--color", "0", "--nodns", "none", "--ip", address,
-            "--protocols", "--cipher-per-proto", "--jsonfile", str(directory / "tool-output.json"), target]
+            "--protocols", "--cipher-per-proto", "--server-defaults", "--jsonfile", str(directory / "tool-output.json"), target]
 
 
 def isolated_environment(directory):
@@ -208,7 +208,7 @@ def persist_nxc(store, job, rows, protocol):
 
 
 def cli(argv, backend):
-    parser = argparse.ArgumentParser(prog="scanrunner plugin")
+    parser = command_parser("plugin")
     parser.add_argument("action", choices=["list", "run", "import", "observations"])
     parser.add_argument("--adapter", choices=ADAPTERS)
     parser.add_argument("--target")
