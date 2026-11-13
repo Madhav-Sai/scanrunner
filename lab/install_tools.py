@@ -29,7 +29,7 @@ for name, version in (("httpx", "1.12.0"), ("nuclei", "3.11.1")):
         binary.chmod(0o755)
     identities[name] = {"version": version, "release_archive_sha256": expected,
                         "binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest()}
-commit = "711a07ada11bc6d4681264e7a5c003b5c03bb588"
+commit = "4f17be931a9d60f3f987975aea8221f1a8eaf7aa"
 with urllib.request.urlopen(f"https://github.com/testssl/testssl.sh/archive/{commit}.zip", timeout=120) as response:
     raw = response.read(128 * 1024 * 1024)
 destination = Path("/opt/testssl")

@@ -55,6 +55,14 @@ class PluginTests(unittest.TestCase):
                                         for value in ("offered", "not offered")]))
             results = plugins.parse_output("testssl", path, "https://127.0.0.1/")
             self.assertEqual([row["outcome"] for row in results], ["Inconclusive", "Inconclusive"])
+            path.write_text(json.dumps([{"ip": "127.0.0.1/127.0.0.1", "port": "443", "id": "TLS1", "finding": "not offered", "severity": "INFO"}]))
+            self.assertEqual(len(plugins.parse_output("testssl", path, "https://127.0.0.1/")), 1)
+            path.write_text(json.dumps([{"ip": "198.51.100.1/127.0.0.1", "port": "443", "id": "TLS1", "finding": "offered", "severity": "INFO"}]))
+            with self.assertRaises(ValueError):
+                plugins.parse_output("testssl", path, "https://127.0.0.1/")
+            path.write_text(json.dumps([{"id": "scanProblem", "ip": "/", "port": "443", "severity": "FATAL", "finding": "Missing dependency"}]))
+            with self.assertRaisesRegex(ValueError, "fatal"):
+                plugins.parse_output("testssl", path, "https://127.0.0.1/")
             path.write_text("")
             self.assertEqual(plugins.parse_output("nuclei", path, "https://127.0.0.1/"), [])
 

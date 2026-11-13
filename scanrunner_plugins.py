@@ -121,7 +121,15 @@ def parse_output(tool, path, target):
         if not isinstance(row, dict):
             raise ValueError("Invalid plugin record")
         if tool == "testssl":
-            subject = str(ipaddress.ip_address(row.get("ip", "")))
+            if row.get("severity") == "FATAL":
+                raise ValueError("TLS scanner reported a fatal execution diagnostic")
+            encoded_subject = row.get("ip", "")
+            if not isinstance(encoded_subject, str):
+                raise ValueError("Invalid TLS endpoint")
+            parts = encoded_subject.split("/")
+            subject = str(ipaddress.ip_address(parts[-1].strip("[]")))
+            if len(parts) > 2 or len(parts) == 2 and str(ipaddress.ip_address(parts[0].strip("[]"))) != wanted[0]:
+                raise ValueError("TLS target name disagrees with the explicitly selected IP")
             if subject != wanted[0] or int(row.get("port", -1)) != wanted[1] or not isinstance(row.get("id"), str) or not isinstance(row.get("finding"), str):
                 raise ValueError("TLS result subject or schema mismatch")
             data = {key: row.get(key) for key in ("id", "finding", "severity")}
