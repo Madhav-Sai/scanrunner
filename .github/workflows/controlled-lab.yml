@@ -1,6 +1,14 @@
 name: Controlled Docker detection lab
 on:
   workflow_dispatch:
+    inputs:
+      base_image:
+        description: Debian runtime for independent scanner/server version coverage
+        type: choice
+        default: debian:bookworm-slim
+        options:
+          - debian:bookworm-slim
+          - debian:trixie-slim
 permissions:
   contents: read
 jobs:
@@ -10,6 +18,7 @@ jobs:
     env:
       COMPOSE_PROJECT_NAME: scanrunner_lab_${{ github.run_id }}
       LAB_IMAGE_TAG: ${{ github.sha }}
+      BASE_IMAGE: ${{ inputs.base_image || 'debian:bookworm-slim' }}
     steps:
       - uses: actions/checkout@v4
         with:
