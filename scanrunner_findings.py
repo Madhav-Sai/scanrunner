@@ -10,7 +10,11 @@ from urllib.parse import urlsplit
 
 import scanrunner_assessment as assessment
 
-RULE_VERSION = "1"
+RULE_VERSION = "2"
+SMB_DIALECTS = {
+    "202": "2.0.2", "210": "2.1", "300": "3.0", "302": "3.0.2", "311": "3.1.1",
+    "2.0.2": "2.0.2", "2.1": "2.1", "3.0": "3.0", "3.0.2": "3.0.2", "3.1.1": "3.1.1",
+}
 STATUSES = {"Not Tested", "Potential", "Needs Verification", "Confirmed", "False Positive",
             "Accepted Risk", "Inconclusive", "Remediated (Verified)"}
 RULES = {
@@ -42,8 +46,9 @@ def evaluate(observation):
         return result
     structured = observation.get("structured", {})
     if observation["check_id"] == "smb2-security-mode":
-        dialects = [node for node in structured.get("children", []) if node.get("tag") == "table"
-                    and re.fullmatch(r"[23]\.\d(?:\.\d)?", node.get("key") or "")]
+        dialects = [node for node in structured.get("children", []) if node.get("tag") == "table"]
+        if any(node.get("key") not in SMB_DIALECTS for node in dialects):
+            return {**result, "reason": "Unsupported SMB dialect evidence"}
         values = [child.get("text", "").strip() for node in dialects for child in node.get("children", [])
                   if child.get("tag") == "elem"]
         supported = {"Message signing enabled and required": False,
@@ -53,8 +58,8 @@ def evaluate(observation):
         if {value for value in supported if value in output} != set(values):
             return {**result, "reason": "Structured and displayed evidence disagree"}
         # Conflicting settings within the same dialect are not a reliable observation.
-        for dialect in {node["key"] for node in dialects}:
-            settings = {child.get("text", "").strip() for node in dialects if node["key"] == dialect
+        for dialect in {SMB_DIALECTS[node["key"]] for node in dialects}:
+            settings = {child.get("text", "").strip() for node in dialects if SMB_DIALECTS[node["key"]] == dialect
                         for child in node.get("children", []) if child.get("tag") == "elem"}
             if len(settings) != 1:
                 return {**result, "reason": "Contradictory dialect evidence"}
@@ -63,7 +68,7 @@ def evaluate(observation):
         tables = [node for node in structured.get("children", []) if node.get("key") == "dialects"]
         values = [node.get("text", "").strip() for table in tables for node in table.get("children", [])
                   if node.get("tag") == "elem"]
-        if not values or any(not re.fullmatch(r"(?:NT LM 0\.12 \(SMBv1\)(?: \[[^\]]+\])?|[23]\.\d(?:\.\d)?)", value)
+        if not values or any(value not in SMB_DIALECTS and not re.fullmatch(r"NT LM 0\.12 \(SMBv1\)(?: \[[^\]]+\])?", value)
                              for value in values):
             return result
         if any(value not in output for value in values) or (("SMBv1" in output) != any("SMBv1" in value for value in values)):

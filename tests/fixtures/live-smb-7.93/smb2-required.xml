@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nmaprun>
+<?xml-stylesheet href="file:///usr/bin/../share/nmap/nmap.xsl" type="text/xsl"?>
+<!-- Nmap 7.93 scan initiated Fri Nov 13 09:34:30 2026 as: /usr/bin/nmap -&#45;stats-every 15s -sT -Pn -&#45;disable-arp-ping -&#45;unprivileged -p 445 -&#45;script smb-protocols,smb2-security-mode -&#45;host-timeout 60s -n -&#45;max-rate 16 -oN /evidence/scans/smb2-required/.scanrunner/runs/e05f2a148ea74442b97665cb716c6b0e/4f9ae8743c064da5a16e408e9c7ebd91/nmap.txt -oX /evidence/scans/smb2-required/.scanrunner/runs/e05f2a148ea74442b97665cb716c6b0e/4f9ae8743c064da5a16e408e9c7ebd91/nmap.xml -&#45; 172.29.77.13 -->
+<nmaprun scanner="nmap" args="/usr/bin/nmap -&#45;stats-every 15s -sT -Pn -&#45;disable-arp-ping -&#45;unprivileged -p 445 -&#45;script smb-protocols,smb2-security-mode -&#45;host-timeout 60s -n -&#45;max-rate 16 -oN /evidence/scans/smb2-required/.scanrunner/runs/e05f2a148ea74442b97665cb716c6b0e/4f9ae8743c064da5a16e408e9c7ebd91/nmap.txt -oX /evidence/scans/smb2-required/.scanrunner/runs/e05f2a148ea74442b97665cb716c6b0e/4f9ae8743c064da5a16e408e9c7ebd91/nmap.xml -&#45; 172.29.77.13" start="1794562470" startstr="Fri Nov 13 09:34:30 2026" version="7.93" xmloutputversion="1.05">
+<scaninfo type="connect" protocol="tcp" numservices="1" services="445"/>
+<verbose level="0"/>
+<debugging level="0"/>
+<host starttime="1794562470" endtime="1794562471"><status state="up" reason="user-set" reason_ttl="0"/>
+<address addr="172.29.77.13" addrtype="ipv4"/>
+<hostnames>
+</hostnames>
+<ports><port protocol="tcp" portid="445"><state state="open" reason="syn-ack" reason_ttl="0"/><service name="microsoft-ds" method="table" conf="3"/></port>
+</ports>
+<hostscript><script id="smb-protocols" output="&#xa;  dialects: &#xa;    202&#xa;    210&#xa;    300&#xa;    302&#xa;    311"><table key="dialects">
+<elem>202</elem>
+<elem>210</elem>
+<elem>300</elem>
+<elem>302</elem>
+<elem>311</elem>
+</table>
+</script><script id="smb2-security-mode" output="&#xa;  311: &#xa;    Message signing enabled and required"><table key="311">
+<elem>Message signing enabled and required</elem>
+</table>
+</script></hostscript><times srtt="149" rttvar="5000" to="100000"/>
+</host>
+<runstats><finished time="1794562471" timestr="Fri Nov 13 09:34:31 2026" summary="Nmap done at Fri Nov 13 09:34:31 2026; 1 IP address (1 host up) scanned in 1.15 seconds" elapsed="1.15" exit="success"/><hosts up="1" down="0" total="1"/>
+</runstats>
+</nmaprun>

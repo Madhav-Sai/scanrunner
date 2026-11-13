@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nmaprun>
+<?xml-stylesheet href="file:///usr/bin/../share/nmap/nmap.xsl" type="text/xsl"?>
+<!-- Nmap 7.93 scan initiated Fri Nov 13 09:34:26 2026 as: /usr/bin/nmap -&#45;stats-every 15s -sT -Pn -&#45;disable-arp-ping -&#45;unprivileged -p 445 -&#45;script smb-protocols,smb2-security-mode -&#45;host-timeout 60s -n -&#45;max-rate 16 -oN /evidence/scans/nt1-optional/.scanrunner/runs/86e94188ba9b4cd795e09caf340fdc2d/e4e32a24e4f04fdcaea09b2138e82067/nmap.txt -oX /evidence/scans/nt1-optional/.scanrunner/runs/86e94188ba9b4cd795e09caf340fdc2d/e4e32a24e4f04fdcaea09b2138e82067/nmap.xml -&#45; 172.29.77.10 -->
+<nmaprun scanner="nmap" args="/usr/bin/nmap -&#45;stats-every 15s -sT -Pn -&#45;disable-arp-ping -&#45;unprivileged -p 445 -&#45;script smb-protocols,smb2-security-mode -&#45;host-timeout 60s -n -&#45;max-rate 16 -oN /evidence/scans/nt1-optional/.scanrunner/runs/86e94188ba9b4cd795e09caf340fdc2d/e4e32a24e4f04fdcaea09b2138e82067/nmap.txt -oX /evidence/scans/nt1-optional/.scanrunner/runs/86e94188ba9b4cd795e09caf340fdc2d/e4e32a24e4f04fdcaea09b2138e82067/nmap.xml -&#45; 172.29.77.10" start="1794562466" startstr="Fri Nov 13 09:34:26 2026" version="7.93" xmloutputversion="1.05">
+<scaninfo type="connect" protocol="tcp" numservices="1" services="445"/>
+<verbose level="0"/>
+<debugging level="0"/>
+<host starttime="1794562466" endtime="1794562467"><status state="up" reason="user-set" reason_ttl="0"/>
+<address addr="172.29.77.10" addrtype="ipv4"/>
+<hostnames>
+</hostnames>
+<ports><port protocol="tcp" portid="445"><state state="open" reason="syn-ack" reason_ttl="0"/><service name="microsoft-ds" method="table" conf="3"/></port>
+</ports>
+<hostscript><script id="smb2-security-mode" output="&#xa;  311: &#xa;    Message signing enabled but not required"><table key="311">
+<elem>Message signing enabled but not required</elem>
+</table>
+</script><script id="smb-protocols" output="&#xa;  dialects: &#xa;    NT LM 0.12 (SMBv1) [dangerous, but default]&#xa;    202&#xa;    210&#xa;    300&#xa;    302&#xa;    311"><table key="dialects">
+<elem>NT LM 0.12 (SMBv1) [dangerous, but default]</elem>
+<elem>202</elem>
+<elem>210</elem>
+<elem>300</elem>
+<elem>302</elem>
+<elem>311</elem>
+</table>
+</script></hostscript><times srtt="136" rttvar="5000" to="100000"/>
+</host>
+<runstats><finished time="1794562467" timestr="Fri Nov 13 09:34:27 2026" summary="Nmap done at Fri Nov 13 09:34:27 2026; 1 IP address (1 host up) scanned in 1.15 seconds" elapsed="1.15" exit="success"/><hosts up="1" down="0" total="1"/>
+</runstats>
+</nmaprun>

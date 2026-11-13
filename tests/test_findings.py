@@ -310,3 +310,24 @@ class FindingWorkflowTests(unittest.TestCase):
         manifest.write_text(json.dumps(data))
         with self.assertRaisesRegex(ValueError, "inflate"):
             benchmark.benchmark(manifest, sr)
+
+    def test_real_nmap_793_lab_captures_match_independent_wire_ground_truth(self):
+        result = benchmark.benchmark(ROOT / "tests/fixtures/live-smb-7.93/dataset.json", sr)
+        self.assertEqual(len(result["cases"]), 8)
+        for score in result["per_check"].values():
+            self.assertEqual((score["true_positive"], score["true_negative"]), (2, 2))
+            self.assertEqual(score["coverage"]["value"], 1)
+
+    def test_unknown_and_conflicting_alias_dialects_are_inconclusive(self):
+        _, observation = self.imported()
+        table = observation["structured"]["children"][0]
+        table["key"] = "999"
+        self.assertEqual(findings.evaluate(observation)["outcome"], "Inconclusive")
+        table["key"] = "311"
+        self.assertEqual(findings.evaluate(observation)["outcome"], "Potential")
+        alternate = copy.deepcopy(table)
+        alternate["key"] = "3.1.1"
+        alternate["children"][0]["text"] = "Message signing enabled and required"
+        observation["structured"]["children"].append(alternate)
+        observation["output"] += " Message signing enabled and required"
+        self.assertEqual(findings.evaluate(observation)["reason"], "Contradictory dialect evidence")

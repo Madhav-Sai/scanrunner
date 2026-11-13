@@ -1,0 +1,142 @@
+{
+    "schema_version":  1,
+    "dataset_kind":  "controlled-lab",
+    "cases":  [
+                  {
+                      "id":  "nt1-optional-smb-protocols",
+                      "artifact":  "nt1-optional.xml",
+                      "sha256":  "223e2fec52f719f082d7cf4979c3b5b6ca746d5da05ebbb2a7930c933d78f03a",
+                      "address":  "172.29.77.10",
+                      "port":  445,
+                      "transport":  "tcp",
+                      "check_id":  "smb-protocols",
+                      "expected":  "positive",
+                      "ground_truth":  {
+                                           "reviewer":  "Controlled lab configuration and independent wire verifier",
+                                           "method":  "Effective Samba configuration plus independent SMB1 and SMB2 wire negotiation",
+                                           "verified_at":  "2026-11-13T09:34:25.906284+00:00",
+                                           "artifact":  "nt1-optional-ground-truth.json",
+                                           "sha256":  "f3a4bc019b5a99a6f1a0d90d80022736da5cc16a83f1567192feb6d5309e6c9b"
+                                       }
+                  },
+                  {
+                      "id":  "nt1-optional-smb2-security-mode",
+                      "artifact":  "nt1-optional.xml",
+                      "sha256":  "223e2fec52f719f082d7cf4979c3b5b6ca746d5da05ebbb2a7930c933d78f03a",
+                      "address":  "172.29.77.10",
+                      "port":  445,
+                      "transport":  "tcp",
+                      "check_id":  "smb2-security-mode",
+                      "expected":  "positive",
+                      "ground_truth":  {
+                                           "reviewer":  "Controlled lab configuration and independent wire verifier",
+                                           "method":  "Effective Samba configuration plus independent SMB1 and SMB2 wire negotiation",
+                                           "verified_at":  "2026-11-13T09:34:25.906284+00:00",
+                                           "artifact":  "nt1-optional-ground-truth.json",
+                                           "sha256":  "f3a4bc019b5a99a6f1a0d90d80022736da5cc16a83f1567192feb6d5309e6c9b"
+                                       }
+                  },
+                  {
+                      "id":  "nt1-required-smb-protocols",
+                      "artifact":  "nt1-required.xml",
+                      "sha256":  "92314df05a225c8e21ad1922ee62414839275dcd0b283dbf24fa31918282a968",
+                      "address":  "172.29.77.11",
+                      "port":  445,
+                      "transport":  "tcp",
+                      "check_id":  "smb-protocols",
+                      "expected":  "positive",
+                      "ground_truth":  {
+                                           "reviewer":  "Controlled lab configuration and independent wire verifier",
+                                           "method":  "Effective Samba configuration plus independent SMB1 and SMB2 wire negotiation",
+                                           "verified_at":  "2026-11-13T09:34:27.296685+00:00",
+                                           "artifact":  "nt1-required-ground-truth.json",
+                                           "sha256":  "ea8da4156456084d2c94d4213e4f81486ac63a55205fdb43db49f7ab89d4c7c3"
+                                       }
+                  },
+                  {
+                      "id":  "nt1-required-smb2-security-mode",
+                      "artifact":  "nt1-required.xml",
+                      "sha256":  "92314df05a225c8e21ad1922ee62414839275dcd0b283dbf24fa31918282a968",
+                      "address":  "172.29.77.11",
+                      "port":  445,
+                      "transport":  "tcp",
+                      "check_id":  "smb2-security-mode",
+                      "expected":  "negative",
+                      "ground_truth":  {
+                                           "reviewer":  "Controlled lab configuration and independent wire verifier",
+                                           "method":  "Effective Samba configuration plus independent SMB1 and SMB2 wire negotiation",
+                                           "verified_at":  "2026-11-13T09:34:27.296685+00:00",
+                                           "artifact":  "nt1-required-ground-truth.json",
+                                           "sha256":  "ea8da4156456084d2c94d4213e4f81486ac63a55205fdb43db49f7ab89d4c7c3"
+                                       }
+                  },
+                  {
+                      "id":  "smb2-optional-smb-protocols",
+                      "artifact":  "smb2-optional.xml",
+                      "sha256":  "04333bd06300c9f19a516c14c720108d3c011d77633935466331d38ed345dbd9",
+                      "address":  "172.29.77.12",
+                      "port":  445,
+                      "transport":  "tcp",
+                      "check_id":  "smb-protocols",
+                      "expected":  "negative",
+                      "ground_truth":  {
+                                           "reviewer":  "Controlled lab configuration and independent wire verifier",
+                                           "method":  "Effective Samba configuration plus independent SMB1 and SMB2 wire negotiation",
+                                           "verified_at":  "2026-11-13T09:34:28.654416+00:00",
+                                           "artifact":  "smb2-optional-ground-truth.json",
+                                           "sha256":  "614ecf803084b27aa33ec1eaf6fa0dfb4bb28748e4f49969a34d553edaf4c416"
+                                       }
+                  },
+                  {
+                      "id":  "smb2-optional-smb2-security-mode",
+                      "artifact":  "smb2-optional.xml",
+                      "sha256":  "04333bd06300c9f19a516c14c720108d3c011d77633935466331d38ed345dbd9",
+                      "address":  "172.29.77.12",
+                      "port":  445,
+                      "transport":  "tcp",
+                      "check_id":  "smb2-security-mode",
+                      "expected":  "positive",
+                      "ground_truth":  {
+                                           "reviewer":  "Controlled lab configuration and independent wire verifier",
+                                           "method":  "Effective Samba configuration plus independent SMB1 and SMB2 wire negotiation",
+                                           "verified_at":  "2026-11-13T09:34:28.654416+00:00",
+                                           "artifact":  "smb2-optional-ground-truth.json",
+                                           "sha256":  "614ecf803084b27aa33ec1eaf6fa0dfb4bb28748e4f49969a34d553edaf4c416"
+                                       }
+                  },
+                  {
+                      "id":  "smb2-required-smb-protocols",
+                      "artifact":  "smb2-required.xml",
+                      "sha256":  "77f40405a0a611b14aaeebefdf5d5377027d9a5b80fdfed18ddcfd6a412089d4",
+                      "address":  "172.29.77.13",
+                      "port":  445,
+                      "transport":  "tcp",
+                      "check_id":  "smb-protocols",
+                      "expected":  "negative",
+                      "ground_truth":  {
+                                           "reviewer":  "Controlled lab configuration and independent wire verifier",
+                                           "method":  "Effective Samba configuration plus independent SMB1 and SMB2 wire negotiation",
+                                           "verified_at":  "2026-11-13T09:34:30.140315+00:00",
+                                           "artifact":  "smb2-required-ground-truth.json",
+                                           "sha256":  "cf8b19a33ee72c1122935b61a6b7dff447ca5c07cb32fb01eadc6ea1ee77b3fe"
+                                       }
+                  },
+                  {
+                      "id":  "smb2-required-smb2-security-mode",
+                      "artifact":  "smb2-required.xml",
+                      "sha256":  "77f40405a0a611b14aaeebefdf5d5377027d9a5b80fdfed18ddcfd6a412089d4",
+                      "address":  "172.29.77.13",
+                      "port":  445,
+                      "transport":  "tcp",
+                      "check_id":  "smb2-security-mode",
+                      "expected":  "negative",
+                      "ground_truth":  {
+                                           "reviewer":  "Controlled lab configuration and independent wire verifier",
+                                           "method":  "Effective Samba configuration plus independent SMB1 and SMB2 wire negotiation",
+                                           "verified_at":  "2026-11-13T09:34:30.140315+00:00",
+                                           "artifact":  "smb2-required-ground-truth.json",
+                                           "sha256":  "cf8b19a33ee72c1122935b61a6b7dff447ca5c07cb32fb01eadc6ea1ee77b3fe"
+                                       }
+                  }
+              ]
+}
