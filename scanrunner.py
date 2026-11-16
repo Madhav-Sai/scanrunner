@@ -7,6 +7,7 @@ import os
 import sys
 import re
 import csv
+import codecs
 import json
 import html
 import ipaddress
@@ -1045,20 +1046,25 @@ def capture_process(command, directory, timeout=600, live=False, environment=Non
         finally:
             restore_terminal()
     def copy_stream(stream, name):
+        decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+        def display_block(block, final=False):
+            display = decoder.decode(block, final=final)
+            if interactive_live and display:
+                try:
+                    lines.put_nowait(display.encode(encoding, errors="backslashreplace").decode(encoding))
+                except queue.Full:
+                    pass  # Raw bytes remain complete in the artifact.
         try:
             with open(os.path.join(directory, name), "xb") as file:
                 while True:
                     block = stream.read1(4096)
                     if not block:
+                        display_block(b"", final=True)
                         break
                     file.write(block)
                     file.flush()
-                    if interactive_live:
-                        try:
-                            display = block.decode("utf-8", errors="replace")
-                            lines.put_nowait(display.encode("ascii", errors="backslashreplace").decode("ascii"))
-                        except queue.Full:
-                            pass  # Raw bytes remain complete in the artifact.
+                    display_block(block)
         except OSError as error:
             capture_errors.append(str(error))
         finally:
@@ -2168,7 +2174,8 @@ def nxc_table_columns(protocol, queries):
     if not queries:
         return [("target", "IP"), ("hostname", "HOSTNAME"), ("os", "OS")]
     if "all" in queries:
-        queries = ["os", "hostname", "smbv1", "smb-signing", "null-auth", "rdp-nla"]
+        queries = (["os", "hostname", "rdp-nla"] if protocol.lower() == "rdp" else
+                   ["os", "hostname", "smbv1", "smb-signing", "null-auth"])
     columns = [("target", "IP")]
     fields = {
         "os": ("os", "OS"), "hostname": ("hostname", "HOSTNAME"),
@@ -2221,6 +2228,8 @@ def print_nxc_table(rows, columns, protocol=None):
 
     def cell_text(field, value):
         text = str(value).strip()
+        if text == "None" and field in _NXC_FINDING_VALUE:
+            return "Not determined"
         return text if text else "-"
 
     widths = {field: max(len(title), *(len(cell_text(field, row.get(field, ""))) for row in rows))
@@ -2237,6 +2246,8 @@ def print_nxc_table(rows, columns, protocol=None):
     title += f"  ({len(rows)} host{'s' if len(rows) != 1 else ''})"
 
     print(c(C.CYAN + C.BOLD, title))
+    responded = sum(bool(row.get("port")) for row in rows)
+    print(c(C.DIM, f"  Parsed responses: {responded}/{len(rows)} listed host(s); blank fields are unobserved."))
     print(c(C.DIM, "  ┌─" + "─" * content_width + "─┐"))
     header = " │ ".join(c(C.BOLD, format_cell(field, title)) for field, title in columns)
     print(c(C.DIM, "  │ ") + header + c(C.DIM, " │"))
@@ -2499,7 +2510,7 @@ def get_file_status(filepath):
 
 
 REPORT_STATUS_PROBLEMS = {
-    "TIMEOUT": "Nmap hit --host-timeout before finishing (partial results kept); "
+    "TIMEOUT": "Nmap hit a host timeout (--host-timeout) before finishing (partial results kept); "
                "raise --host-timeout and rescan",
     "UNRESOLVED": "Nmap could not resolve the target (0 IP addresses scanned)",
     "INCOMPLETE": "Nmap exited without finishing the report",
@@ -3386,7 +3397,7 @@ def _watch_tab_progress(output_dir, pending_ips, poll_interval=3, since=None):
 #  RESUME
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def previously_completed(ips, output_dir, completed_file, trust_reports=False):
+def previously_completed(ips, output_dir, completed_file):
     """Return the targets in ips that don't need scanning again.
 
     A target is done when its report is COMPLETE, or when it was logged as
@@ -3396,7 +3407,7 @@ def previously_completed(ips, output_dir, completed_file, trust_reports=False):
     does not count, even though completed.txt still lists the target. A report
     whose host was down never counts, so --resume tries it again.
     """
-    if ACTIVE_STORE is not None and not trust_reports:
+    if ACTIVE_STORE is not None:
         pn = has_nmap_option(ACTIVE_CONFIG.get("options", []), "-Pn")
         return {target for target in ips if ACTIVE_STORE.completed(target, pn)}
     last_completed = {}
@@ -3955,7 +3966,7 @@ def main():
     # ── Resume — single prompt ────────────────────────────────────────────────
     completed_ips = set()
     if os.path.exists(completed_file) or args.resume:
-        all_done = previously_completed(ips, output_dir, completed_file, trust_reports=args.resume)
+        all_done = previously_completed(ips, output_dir, completed_file)
         if all_done:
             print(c(C.BLUE + C.BOLD, f"  Found {len(all_done)} previously completed IP(s)."))
             if args.resume:
@@ -4214,7 +4225,9 @@ def main():
                         result = False
                         failure_reason = REPORT_STATUS_PROBLEMS[report_status]
                 elif result is False:
-                    failure_reason = "Nmap exited with an error"
+                    report_status = get_file_status(output_file)
+                    failure_reason = (REPORT_STATUS_PROBLEMS[report_status]
+                                      if report_status == "TIMEOUT" else "Nmap exited with an error")
                 if result is not False or attempt >= args.retries:
                     break
                 attempt += 1

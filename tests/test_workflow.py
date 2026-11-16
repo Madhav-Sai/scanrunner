@@ -443,11 +443,31 @@ class ResumeTests(unittest.TestCase):
         log_line(self.completed, "other-list-host", datetime.now())
         self.assertEqual(sr.previously_completed(["mine"], self.dir, self.completed), set())
 
-    def test_resume_trusts_complete_report_when_scan_fingerprint_changed(self):
+    def test_resume_rejects_complete_cache_when_evidence_is_not_verified(self):
         self.report("complete", COMPLETE_REPORT)
-        with mock.patch.object(sr, "ACTIVE_STORE", object()):
-            self.assertEqual(sr.previously_completed(["complete"], self.dir, self.completed,
-                                                     trust_reports=True), {"complete"})
+        store = mock.Mock()
+        store.completed.return_value = False
+        with mock.patch.object(sr, "ACTIVE_STORE", store):
+            self.assertEqual(sr.previously_completed(["complete"], self.dir, self.completed), set())
+        store.completed.assert_called_once()
+
+
+class NxcDisplayRegressionTests(unittest.TestCase):
+    def test_all_columns_match_protocol(self):
+        smb = dict(sr.nxc_table_columns("smb", ["all"]))
+        rdp = dict(sr.nxc_table_columns("rdp", ["all"]))
+        self.assertNotIn("rdp_nla", smb)
+        self.assertNotIn("smbv1", rdp)
+        self.assertIn("rdp_nla", rdp)
+
+    def test_table_distinguishes_listed_hosts_from_responses(self):
+        rows = [sr._empty_nxc_row("192.0.2.1"), sr._empty_nxc_row("192.0.2.2")]
+        rows[0].update(port="445", smbv1="None")
+        output = io.StringIO()
+        with mock.patch.object(sys, "stdout", output):
+            sr.print_nxc_table(rows, sr.nxc_table_columns("smb", ["all"]), "smb")
+        self.assertIn("Parsed responses: 1/2", output.getvalue())
+        self.assertIn("Not determined", output.getvalue())
 
 
 class TabDashboardTests(unittest.TestCase):
