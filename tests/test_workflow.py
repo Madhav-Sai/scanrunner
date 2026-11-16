@@ -443,6 +443,12 @@ class ResumeTests(unittest.TestCase):
         log_line(self.completed, "other-list-host", datetime.now())
         self.assertEqual(sr.previously_completed(["mine"], self.dir, self.completed), set())
 
+    def test_resume_trusts_complete_report_when_scan_fingerprint_changed(self):
+        self.report("complete", COMPLETE_REPORT)
+        with mock.patch.object(sr, "ACTIVE_STORE", object()):
+            self.assertEqual(sr.previously_completed(["complete"], self.dir, self.completed,
+                                                     trust_reports=True), {"complete"})
+
 
 class TabDashboardTests(unittest.TestCase):
     def test_outcomes_from_before_launch_are_not_progress(self):

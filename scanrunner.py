@@ -3386,7 +3386,7 @@ def _watch_tab_progress(output_dir, pending_ips, poll_interval=3, since=None):
 #  RESUME
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def previously_completed(ips, output_dir, completed_file):
+def previously_completed(ips, output_dir, completed_file, trust_reports=False):
     """Return the targets in ips that don't need scanning again.
 
     A target is done when its report is COMPLETE, or when it was logged as
@@ -3396,7 +3396,7 @@ def previously_completed(ips, output_dir, completed_file):
     does not count, even though completed.txt still lists the target. A report
     whose host was down never counts, so --resume tries it again.
     """
-    if ACTIVE_STORE is not None:
+    if ACTIVE_STORE is not None and not trust_reports:
         pn = has_nmap_option(ACTIVE_CONFIG.get("options", []), "-Pn")
         return {target for target in ips if ACTIVE_STORE.completed(target, pn)}
     last_completed = {}
@@ -3955,7 +3955,7 @@ def main():
     # ── Resume — single prompt ────────────────────────────────────────────────
     completed_ips = set()
     if os.path.exists(completed_file) or args.resume:
-        all_done = previously_completed(ips, output_dir, completed_file)
+        all_done = previously_completed(ips, output_dir, completed_file, trust_reports=args.resume)
         if all_done:
             print(c(C.BLUE + C.BOLD, f"  Found {len(all_done)} previously completed IP(s)."))
             if args.resume:
