@@ -79,10 +79,10 @@ PROFILE_NOTES = {
     "ssh-audit": "Lists offered SSH algorithms. Algorithm offers require policy review.",
     "dns-audit": "DNS service inventory. Use probe dns-recursion with an owned canary for control verification.",
     "ad-discovery": "AD-associated service inventory without authentication or directory enumeration.",
-    "tls-audit": "Certificate and cipher negotiation. Requires explicit authorization for repeated handshakes.",
-    "ssl-ciphers": "Repeated TLS handshakes require --allow-intrusive and --authorization-note.",
+    "tls-audit": "Certificate and cipher negotiation.",
+    "ssl-ciphers": "TLS cipher observations.",
 }
-PROFILE_REQUIRES_AUTHORIZATION = {"smb-audit", "ssl-ciphers", "tls-audit"}
+PROFILE_REQUIRES_AUTHORIZATION = {"smb-audit"}
 
 NXC_QUERY_CHOICES = {
     "os", "hostname", "smbv1", "smb-signing", "null-auth", "rdp-nla", "all"
@@ -1248,8 +1248,6 @@ def validate_scan_options(options, nxc=False, allow_intrusive=False):
                 raise ValueError("Anonymous SMB sessions require --allow-intrusive and --authorization-note")
             if "ftp-anon" in value.split(","):
                 raise ValueError("Use the scoped native FTP probe to avoid NSE passive-data destination expansion")
-            if "ssl-enum-ciphers" in value.split(",") and not allow_intrusive:
-                raise ValueError("TLS cipher enumeration requires --allow-intrusive and --authorization-note")
         elif option in value_options:
             if not equal:
                 index += 1
@@ -1322,7 +1320,7 @@ Templates:
 Run --list-templates or --template -vv to view the exact arguments in each template.
 
 Examples:
-  scanrunner -f targets.txt --profile tls-audit --allow-intrusive --authorization-note AUTH_REF
+  scanrunner -f targets.txt --profile tls-audit
   scanrunner -f targets.txt --preset full-fast --host-timeout 10m
 
 Templates are optional. You can always use raw Nmap arguments instead:

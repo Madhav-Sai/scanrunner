@@ -212,7 +212,7 @@ def guide(argv):
         print("6. Export a readable report\n   " + command_line(["report", "-o", args.output, "--format", "html", "--destination", os.path.join(args.output, "report.html")]))
         print("   Open report.html in your browser. Review failed or inconclusive coverage.")
         print("7. Choose a control when you need more detail\n   scanrunner --list-templates\n   scanrunner probe --help")
-        print("   For SSH algorithm evidence, preview --profile ssh-audit. TLS cipher enumeration also requires explicit authorization.")
+        print("   For SSH algorithm evidence, preview --profile ssh-audit. TLS cipher evidence is available with --profile tls-audit.")
         print("\nYour results\n  The output folder contains inventory and reports. Its .scanrunner folder holds private state and original evidence.")
     elif args.task == "findings":
         print("1. Gather a supported control observation using an appropriate profile or probe.")
@@ -287,6 +287,6 @@ Manage your assessment locally
 
 Start with a worked example                scanrunner guide
 Live scan output keeps terminal line alignment during keyboard controls.
-TLS cipher enumeration requires explicit authorization. Revised rules require
-renewed review of previously confirmed findings before final export.
+TLS cipher enumeration is available through the TLS audit profiles. Revised rules
+require renewed review of previously confirmed findings before final export.
 """

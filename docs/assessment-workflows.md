@@ -71,7 +71,7 @@ python scanrunner.py rules
 
 Native probes record raw protocol exchanges and preserve their actual endpoint, including explicitly selected custom ports. The native FTP probe confines its traffic to the control channel. The stock DNS NSE recursion flag remains inconclusive until the controlled answer requirements are satisfied.
 
-New profiles include `safe-baseline`, `ssh-audit`, `dns-audit`, `ad-discovery` and `tls-audit`. TLS cipher enumeration requires `--allow-intrusive --authorization-note AUTH_REF` because it repeatedly negotiates connections. The DNS and AD profiles perform service inventory. Protocol-control verification uses the corresponding explicitly selected check.
+New profiles include `safe-baseline`, `ssh-audit`, `dns-audit`, `ad-discovery` and `tls-audit`. The TLS profile performs certificate and cipher observations. The DNS and AD profiles perform service inventory. Protocol-control verification uses the corresponding explicitly selected check.
 
 ## Exports and private sharing
 

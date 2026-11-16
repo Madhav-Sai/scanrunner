@@ -648,11 +648,11 @@ The broad `vuln` preset is retired because its script category includes unreview
 Choose a supported profile or explicitly select approved scripts. `full-fast` no longer
 expands `-A` or sets a minimum traffic rate. `web` and `web-enum` provide service inventory
 without HTTP NSE enumeration. These compatibility changes are also displayed in profile
-notes. `smb-audit`, `ssl-ciphers` and `tls-audit` require both `--allow-intrusive` and `--authorization-note`.
+notes. Only `smb-audit` requires both `--allow-intrusive` and `--authorization-note`.
 
 ```bash
 # Equivalent aliases; use whichever reads best in your workflow.
-python3 scanrunner.py -f targets.txt --template ssl-ciphers --allow-intrusive --authorization-note AUTH_REF
+python3 scanrunner.py -f targets.txt --template ssl-ciphers
 python3 scanrunner.py -f targets.txt --preset full-fast --host-timeout 10m
 python3 scanrunner.py -f targets.txt --template full-fast -vv
 

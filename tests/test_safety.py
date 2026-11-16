@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import socket
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -79,6 +80,14 @@ class ScopeSafetyTests(unittest.TestCase):
                 sr.validate_scan_options(argv)
         with self.assertRaises(ValueError):
             sr.validate_scan_options(["-u", "analyst"], nxc=True)
+
+    def test_tls_cipher_enumeration_does_not_require_intrusive_authorization(self):
+        sr.validate_scan_options(["--script", "ssl-enum-ciphers"])
+        for profile in ("ssl-ciphers", "tls-audit"):
+            with mock.patch.object(sys, "argv", ["scanrunner", "-i", "192.0.2.1",
+                                                  "--profile", profile, "--dry-run"]):
+                args = sr.parse_args()
+            self.assertEqual(args.profile, profile)
 
     def test_dry_run_spawns_nothing_resolves_nothing_and_writes_nothing(self):
         with tempfile.TemporaryDirectory() as tmp:
