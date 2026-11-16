@@ -8,6 +8,7 @@ import sys
 import re
 import csv
 import codecs
+import math
 import json
 import html
 import ipaddress
@@ -1803,8 +1804,8 @@ def parse_args():
                         help="Shared scanner concurrency ceiling in the output directory (default 4)")
     workflow_group.add_argument("--subnet-concurrency", type=int, default=2, metavar="N",
                         help="Concurrent scans per IPv4 /24 or IPv6 /64 (default 2)")
-    workflow_group.add_argument("--scan-rate", type=int, default=100, metavar="PPS",
-                        help="Nmap discovery/port-scan PPS budget across workers. OS/version/NSE traffic is outside this limit (default 100)")
+    workflow_group.add_argument("--scan-rate", type=int, default=None, metavar="PPS",
+                        help="Nmap discovery/port-scan PPS budget across workers (default 100, or derived from explicit Nmap rates). OS/version/NSE traffic is outside this limit")
     workflow_group.add_argument("--retries", type=int, default=0, metavar="N",
                         help="Retry failed scans up to N times")
     workflow_group.add_argument("--parallel", type=int, default=1, metavar="N",
@@ -1829,6 +1830,9 @@ def parse_args():
     if argv_error:
         parser.error(argv_error)
     args, nmap_extra = parser.parse_known_args(argv)
+    args.scan_rate_explicit = args.scan_rate is not None
+    if args.scan_rate is None:
+        args.scan_rate = 100
     nmap_extra.extend(passthrough)
     # Keep the raw token list — do NOT join then re-split.
     # Joining then shlex.split-ing loses spaces inside quoted args
@@ -3091,8 +3095,9 @@ def _build_tab_command(args):
     cmd.extend(["--engagement", getattr(args, "engagement", "default"),
                 "--process-timeout", str(getattr(args, "process_timeout", 600))])
     cmd.extend(["--global-concurrency", str(getattr(args, "global_concurrency", 4)),
-                "--subnet-concurrency", str(getattr(args, "subnet_concurrency", 2)),
-                "--scan-rate", str(getattr(args, "scan_rate", 100))])
+                "--subnet-concurrency", str(getattr(args, "subnet_concurrency", 2))])
+    if getattr(args, "scan_rate_explicit", True):
+        cmd.extend(["--scan-rate", str(getattr(args, "scan_rate", 100))])
     if args.metadata_csv:
         cmd.extend(["--metadata-csv", args.metadata_csv])
     if args.html_report:
@@ -3779,12 +3784,22 @@ def main():
             if not any(option.split("=", 1)[0] in {"-t", "--threads"} for option in args.nmap_extra):
                 args.nmap_extra.extend(["-t", str(NXC_DEFAULT_THREADS)])
         if not args.nxc:
+            requested_rates = []
+            for index, option in enumerate(args.nmap_extra):
+                if option.split("=", 1)[0] in {"--min-rate", "--max-rate"}:
+                    value = option.split("=", 1)[1] if "=" in option else args.nmap_extra[index + 1]
+                    rate = float(value)
+                    if not math.isfinite(rate) or rate <= 0:
+                        raise ValueError("Nmap rate must be a finite number greater than zero")
+                    requested_rates.append(rate)
+            if requested_rates and not args.scan_rate_explicit:
+                args.scan_rate = max(100, math.ceil(max(requested_rates)) * args.global_concurrency)
             ceiling = max(1, args.scan_rate // args.global_concurrency)
             for index, option in enumerate(args.nmap_extra):
                 if option.split("=", 1)[0] in {"--min-rate", "--max-rate"}:
                     value = option.split("=", 1)[1] if "=" in option else args.nmap_extra[index + 1]
                     if not 0 < float(value) <= ceiling:
-                        raise ValueError(f"Per-process rate must be between 0 and {ceiling} PPS")
+                        raise ValueError(f"Nmap rate exceeds the explicit --scan-rate budget ({ceiling} PPS per process)")
             if not has_nmap_option(args.nmap_extra, "--max-rate"):
                 args.nmap_extra.extend(["--max-rate", str(ceiling)])
         if args.nxc:

@@ -1017,7 +1017,9 @@ Processes default to a 600-second timeout and retries are bounded to five.
 `--global-concurrency` defaults to 4 and `--subnet-concurrency` to 2. These ceilings
 apply to workers sharing an output directory. `--scan-rate` defaults to 100 Nmap
 discovery/port-scan packets per second, divided across global slots. Raw rate
-overrides must fit that ceiling. OS, version and NSE traffic is outside this budget.
+options such as `--min-rate=2000` automatically set a sufficient shared budget,
+so no extra ScanRunner flags are needed. If you explicitly set `--scan-rate`,
+raw rate options must fit that budget. OS, version and NSE traffic is outside this budget.
 Use `--dry-run` to review the effective arguments and impact.
 
 Run `python scripts/check_quality.py` for offline syntax, safety lint and installer

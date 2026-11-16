@@ -16,6 +16,27 @@ spec.loader.exec_module(sr)
 
 
 class ScopeSafetyTests(unittest.TestCase):
+    def test_raw_nmap_rate_automatically_sets_budget(self):
+        for rates, expected in ((["--min-rate=2000"], 8000),
+                                (["--max-rate", "3000"], 12000),
+                                (["--min-rate", "1000", "--max-rate=2000"], 8000)):
+            with self.subTest(rates=rates):
+                output = io.StringIO()
+                argv = ["scanrunner", "-i", "192.0.2.1", "--dry-run", "--json", *rates]
+                with mock.patch.object(sys, "argv", argv), mock.patch.object(sys, "stdout", output):
+                    sr.main()
+                preview = json.loads(output.getvalue())
+                self.assertEqual(preview["traffic_limits"]["aggregate_nmap_pps"], expected)
+                command = preview["commands"][0]["argv"]
+                if rates == ["--min-rate=2000"]:
+                    self.assertEqual(command[command.index("--max-rate") + 1], "2000")
+
+    def test_explicit_budget_still_rejects_excessive_nmap_rate(self):
+        argv = ["scanrunner", "-i", "192.0.2.1", "--dry-run", "--scan-rate", "100", "--min-rate=2000"]
+        with mock.patch.object(sys, "argv", argv):
+            with self.assertRaisesRegex(ValueError, "explicit --scan-rate"):
+                sr.main()
+
     def test_preview_discloses_rate_scope_and_divides_the_supported_budget(self):
         output = io.StringIO()
         argv = ["scanrunner", "-i", "192.0.2.1", "--dry-run", "--json", "--scan-rate", "16", "--global-concurrency", "3"]
