@@ -87,6 +87,8 @@ PROFILE_REQUIRES_AUTHORIZATION = {"smb-audit"}
 NXC_QUERY_CHOICES = {
     "os", "hostname", "smbv1", "smb-signing", "null-auth", "rdp-nla", "all"
 }
+NXC_DEFAULT_THREADS = 4
+NXC_MAX_THREADS = 16
 
 HELP_BANNER = r"""
    _____                  ____
@@ -1015,6 +1017,7 @@ class WindowsProcessJob:
 
 def capture_process(command, directory, timeout=600, live=False, environment=None):
     """Preserve exact stdout/stderr and bound execution, including cancellation."""
+    interactive_live = live and sys.stdout.isatty()
     execution = [sys.executable, "-c", POSIX_SUPERVISOR, str(os.getpid()), *command] if os.name == "posix" else command
     process = subprocess.Popen(execution, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                **({"env": environment} if environment is not None else {}),
@@ -1026,7 +1029,7 @@ def capture_process(command, directory, timeout=600, live=False, environment=Non
     stop_keys = threading.Event()
     key_state = []
     def watch_keys():
-        if not live or not RAW_MODE_SUPPORTED or not sys.stdin.isatty():
+        if not interactive_live or not RAW_MODE_SUPPORTED or not sys.stdin.isatty():
             return
         try:
             enable_scan_keys(sys.stdin.fileno())
@@ -1050,9 +1053,10 @@ def capture_process(command, directory, timeout=600, live=False, environment=Non
                         break
                     file.write(block)
                     file.flush()
-                    if live:
+                    if interactive_live:
                         try:
-                            lines.put_nowait(block.decode("utf-8", errors="replace"))
+                            display = block.decode("utf-8", errors="replace")
+                            lines.put_nowait(display.encode("ascii", errors="backslashreplace").decode("ascii"))
                         except queue.Full:
                             pass  # Raw bytes remain complete in the artifact.
         except OSError as error:
@@ -2381,7 +2385,8 @@ def _run_nxc_command(binary, protocol, target_source, targets, nxc_extra, querie
         command = [binary, protocol, source_path, *effective_extra]
         if ACTIVE_CONFIG.get("binary_sha256") and file_sha256(binary) != ACTIVE_CONFIG["binary_sha256"]:
             raise ValueError("Scanner binary changed since run authorization")
-        code, process_state = capture_process(command, job['directory'], store.config.get('timeout', 600), live=False)
+        code, process_state = capture_process(
+            command, job['directory'], store.config.get('timeout', 600), live=sys.stdout.isatty())
         with open(os.path.join(job['directory'], 'stdout.bin'), 'rb') as file:
             output = file.read().decode('utf-8', errors='replace')
         with open(source_path, encoding='utf-8') as file:
@@ -3758,10 +3763,10 @@ def main():
             for index, option in enumerate(args.nmap_extra):
                 if option.split("=", 1)[0] in {"-t", "--threads"}:
                     value = option.split("=", 1)[1] if "=" in option else args.nmap_extra[index + 1]
-                    if value != "1":
-                        raise ValueError("NetExec is limited to one target thread per claimed job")
+                    if not value.isdigit() or not 1 <= int(value) <= NXC_MAX_THREADS:
+                        raise ValueError(f"NetExec threads must be between 1 and {NXC_MAX_THREADS}")
             if not any(option.split("=", 1)[0] in {"-t", "--threads"} for option in args.nmap_extra):
-                args.nmap_extra.extend(["-t", "1"])
+                args.nmap_extra.extend(["-t", str(NXC_DEFAULT_THREADS)])
         if not args.nxc:
             ceiling = max(1, args.scan_rate // args.global_concurrency)
             for index, option in enumerate(args.nmap_extra):
