@@ -37,9 +37,10 @@ gnome-terminal, konsole, xfce4-terminal, xterm and tmux. No new options.
   "None" as the OS, and later lines (`[*] Enumerated ... users`) can't replace it
 - Tabs in qterminal (Kali's default), konsole and xfce4-terminal no longer break
   arguments that contain an apostrophe
-- macOS tabs: arguments with `"` or `\` no longer break the Terminal command;
-  Windows Terminal tabs keep `;` inside arguments (unit-tested; not yet run on
-  a real Mac or Windows machine)
+- macOS tabs: arguments with `"` or `\` no longer break the Terminal command
+  (unit-tested; not yet run on a real Mac)
+- Windows Terminal tabs keep `;` inside arguments (tested on Windows 11, as is
+  the `cmd /k` fallback when Windows Terminal is missing)
 - Fixed a flaky Windows CI test (fake Nmap call log lost lines in parallel)
 
 # scanrunner v1.7.0
