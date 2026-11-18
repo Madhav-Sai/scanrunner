@@ -157,6 +157,13 @@ class ArgumentConflictTests(unittest.TestCase):
         result = run_cli("-f", "a.txt", "-iL", "b.txt")
         self.assertEqual(result.returncode, 2)
 
+    def test_repeated_target_options_are_rejected(self):
+        # argparse would keep only the last one and silently drop the others.
+        for args in (("-i", "10.0.0.1", "-i", "10.0.0.2"), ("-f", "a.txt", "--file=b.txt")):
+            result = run_cli(*args)
+            self.assertEqual(result.returncode, 2, args)
+            self.assertIn("more than once", result.stderr)
+
     def test_iR_is_refused(self):
         result = run_cli("-iR", "100")
         self.assertEqual(result.returncode, 2)

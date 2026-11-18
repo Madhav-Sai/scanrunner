@@ -846,6 +846,11 @@ def preprocess_argv(argv):
     nxc_mode = any(token in {"-nxc", "--nxc"} or token.startswith(("-nxc=", "--nxc="))
                    for token in argv)
     result, passthrough = [], []
+    # argparse would silently keep only the last -i (or -f), dropping targets.
+    for short, long in (("-i", "--ip"), ("-f", "--file")):
+        if sum(token in {short, long} or token.startswith(long + "=") for token in argv) > 1:
+            return argv, [], (f"{short} was given more than once — put several targets "
+                              "in a file, one per line, and use -f FILE.")
     index = 0
     while index < len(argv):
         token = argv[index]
