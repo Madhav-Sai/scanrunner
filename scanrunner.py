@@ -3002,7 +3002,7 @@ def handle_review_commands():
     if not arguments or arguments[0] not in {"--status", "--diff"}:
         return
     global COLORS_ENABLED
-    COLORS_ENABLED = "--no-color" not in sys.argv[1:]
+    COLORS_ENABLED = "--no-color" not in sys.argv[1:] and sys.stdout.isatty()
     command, rest = arguments[0], arguments[1:]
     if command == "--status":
         if len(rest) > 1:
@@ -3036,7 +3036,8 @@ def main():
     handle_topic_help()
     handle_review_commands()
     args = parse_args()
-    COLORS_ENABLED = not args.no_color
+    # No escape codes in redirected output, logs or background-tab logs.
+    COLORS_ENABLED = not args.no_color and sys.stdout.isatty()
     banner()
 
     if args.split is not None or args.split_size is not None:

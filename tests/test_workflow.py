@@ -870,6 +870,14 @@ class ParallelEndToEndTests(EndToEndBase):
         self.assertTrue(error_log.exists())
         self.assertIn("due to host timeout", error_log.read_text())
 
+    def test_redirected_output_has_no_color_codes(self):
+        self.scenarios(**{"10.0.0.1": {"kind": "up", "ports": [[22, "tcp", "ssh", ""]]}})
+        result = run_cli("-i", "10.0.0.1", "--yes", "--skip-ping", "-o", str(self.out),
+                         env=self.env, cwd=str(self.root))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Reconciliation OK", result.stdout)
+        self.assertNotIn("\x1b[", result.stdout)
+
     def test_parallel_fatal_error_stops_queued_scans(self):
         self.scenarios(**{f"10.0.0.{i}": {"kind": "fatal"} for i in range(1, 21)})
         result = self.run_scan("-f", self.targets(*[f"10.0.0.{i}" for i in range(1, 21)]),
