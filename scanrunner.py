@@ -34,6 +34,7 @@ import threading
 import argparse
 import subprocess
 import tempfile
+import contextlib
 import xml.etree.ElementTree as ET
 from collections import Counter, deque
 from datetime import datetime
@@ -2588,12 +2589,25 @@ def _terminal_failed_to_start(process, grace=0.5):
         return False   # still running — the window is up
 
 
+_TAB_DONE = 'printf "\\n  [scanrunner] This tab is done. Press Enter to close it. "; read _'
+
+
+def _tab_script(command):
+    """Write command to a self-deleting sh script for terminals that take
+    "-e STRING". qterminal (Kali's default) splits that string itself and
+    breaks shell quoting such as an argument containing an apostrophe."""
+    handle, path = tempfile.mkstemp(prefix="scanrunner-tab-", suffix=".sh")
+    with os.fdopen(handle, "w", encoding="utf-8") as script:
+        script.write('rm -f -- "$0"\n' + " ".join(shlex.quote(part) for part in command)
+                     + "\n" + _TAB_DONE + "\n")
+    return path
+
+
 def _spawn_linux_terminal(command, title, cwd):
     # Keep the tab open after its part finishes so its results and any errors
     # stay readable, as Windows (cmd /k) and macOS Terminal already do.
-    command = ["sh", "-c",
-               '"$@"; printf "\\n  [scanrunner] This tab is done. Press Enter to close it. "; read _',
-               "scanrunner-tab", *command]
+    original_command = command
+    command = ["sh", "-c", '"$@"; ' + _TAB_DONE, "scanrunner-tab", *command]
     if os.environ.get("TMUX"):
         try:
             process = subprocess.Popen(["tmux", "new-window", "-n", title, "-c", cwd, *command])
@@ -2604,28 +2618,35 @@ def _spawn_linux_terminal(command, title, cwd):
     # GUI terminals need an X11/Wayland display (not available over plain SSH).
     if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
         return False
-    quoted_command = " ".join(shlex.quote(part) for part in command)
     candidates = []
     for terminal in ("x-terminal-emulator", "gnome-terminal", "konsole", "xfce4-terminal"):
         path = shutil.which(terminal)
         if not path:
             continue
         if terminal == "gnome-terminal":
-            candidates.append([path, "--title", title, "--working-directory", cwd, "--", *command])
+            candidates.append(([path, "--title", title, "--working-directory", cwd, "--", *command], None))
         else:
-            candidates.append([path, "-e", quoted_command])
+            script = _tab_script(original_command)
+            candidates.append(([path, "-e", "sh " + shlex.quote(script)], script))
     xterm = shutil.which("xterm")
     if xterm:
-        candidates.append([xterm, "-T", title, "-e", *command])
-    for candidate in candidates:
+        candidates.append(([xterm, "-T", title, "-e", *command], None))
+    launched = False
+    for candidate, _ in candidates:
         try:
             # Own session: closing the launching window must not hang up the tabs.
             process = subprocess.Popen(candidate, cwd=cwd, start_new_session=True)
         except OSError:
             continue
         if not _terminal_failed_to_start(process):
-            return True
-    return False
+            launched = candidate
+            break
+    # Scripts of terminals that were not used (the used one deletes its own).
+    for candidate, script in candidates:
+        if script and candidate is not launched:
+            with contextlib.suppress(OSError):
+                os.remove(script)
+    return bool(launched)
 
 
 def _spawn_background(command, cwd, log_path):

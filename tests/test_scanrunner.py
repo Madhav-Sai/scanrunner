@@ -1,5 +1,6 @@
 import importlib.util
 import os
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -290,6 +291,27 @@ class TerminalTabTests(unittest.TestCase):
         self.assertEqual(argv[4:6], ["sh", "-c"])
         self.assertIn("read", argv[6])
         self.assertEqual(argv[-3:], ["scanrunner", "-f", "t 1.txt"])
+
+    def test_dash_e_string_terminals_get_a_script_not_a_quoted_string(self):
+        # qterminal splits "-e STRING" itself and breaks quoting such as "it's".
+        process = mock.Mock()
+        process.wait.side_effect = subprocess.TimeoutExpired("x", 0.5)
+        with mock.patch.dict(os.environ, {"DISPLAY": ":0"}, clear=True), \
+             mock.patch.object(sr.shutil, "which", side_effect=lambda name: (
+                 "/usr/bin/x-terminal-emulator" if name == "x-terminal-emulator" else None)), \
+             mock.patch.object(sr.subprocess, "Popen", return_value=process) as popen:
+            self.assertTrue(sr._spawn_linux_terminal(
+                ["scanrunner", "--script-args", "ua='a b'"], "tab", "/w"))
+        argv = popen.call_args[0][0]
+        self.assertEqual(argv[:2], ["/usr/bin/x-terminal-emulator", "-e"])
+        script = shlex.split(argv[2])[1]
+        try:
+            with open(script, encoding="utf-8") as f:
+                lines = f.read().splitlines()
+        finally:
+            os.remove(script)
+        self.assertEqual(shlex.split(lines[1]), ["scanrunner", "--script-args", "ua='a b'"])
+        self.assertIn("read _", lines[2])
 
 
 class NxcParsingTests(unittest.TestCase):
