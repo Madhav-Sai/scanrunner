@@ -1246,6 +1246,7 @@ def parse_nxc_output(output, targets, null_auth_attempt=False, resolver=None):
     rows = {target: _empty_nxc_row(target) for target in seeded}
     # NetExec lines start with the protocol name: "SMB  10.0.0.5  445  DC01  [*] ..."
     line_pattern = re.compile(r"^([A-Z][A-Z0-9]*)\s+(\S+)\s+(\d+)\s+(\S+)\s+(.*)$")
+    banner_seen = set()
 
     for raw_line in output.splitlines():
         line = strip_ansi(raw_line).strip()
@@ -1255,19 +1256,22 @@ def parse_nxc_output(output, targets, null_auth_attempt=False, resolver=None):
         _, target, port, hostname, details = match.groups()
         row = rows.setdefault(target, _empty_nxc_row(target))
         row["port"] = port
-        if hostname not in {"None", "(null)", "-"}:
+        # NetExec puts the IP in the name column when it has no hostname (SSH, FTP).
+        if hostname not in {"None", "(null)", "-", target}:
             row["hostname"] = hostname
         row["details"] = details
 
         name = re.search(r"\(name:([^)]*)\)", details, re.IGNORECASE)
         if name:
             row["hostname"] = name.group(1)
-        # The OS comes from the host banner ("[*] Windows ... (name:DC01) ...").
-        # Later lines (share listings, "[*] Enumerated shares", module output)
-        # must not overwrite it.
-        if details.startswith("[*] ") and (name or not row["os"]):
+        # The OS comes from the host banner, the host's first "[*]" line
+        # ("[*] Windows ... (name:DC01) ..."). Later lines (share listings,
+        # "[*] Enumerated shares", module output) must not set it, even when
+        # the banner had no OS (LDAP prints "None").
+        if details.startswith("[*] ") and target not in banner_seen:
+            banner_seen.add(target)
             operating_system = details[4:].split(" (name:", 1)[0].strip()
-            if operating_system:
+            if operating_system and operating_system not in {"None", "(null)"}:
                 row["os"] = operating_system
         for field, pattern in (
             ("smbv1", r"SMBv1:(True|False|None)"),

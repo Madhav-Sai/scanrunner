@@ -537,6 +537,20 @@ class NxcTests(unittest.TestCase):
         rows = sr.parse_nxc_output(output, ["10.77.1.10"], resolver=mock.Mock())
         self.assertEqual(rows[0]["os"], "Unix - Samba")
 
+    def test_ip_in_name_column_and_none_os_are_blank(self):
+        # Real NetExec 1.5 lines for an SSH server and a Samba AD DC over LDAP.
+        output = (
+            "SSH   10.77.3.11  22   10.77.3.11  [*] SSH-2.0-OpenSSH_9.7\n"
+            "LDAP  10.77.3.13  389  DC01        [*] None (name:DC01) (domain:lab.local) "
+            "(signing:Enforced) (channel binding:Never) (NTLM:False)\n"
+            "LDAP  10.77.3.13  389  DC01        [+] lab.local\\labuser:secret\n"
+            "LDAP  10.77.3.13  389  DC01        [*] Enumerated 4 domain users: lab.local\n"
+        )
+        rows = {r["target"]: r for r in sr.parse_nxc_output(output, [], resolver=mock.Mock())}
+        self.assertEqual((rows["10.77.3.11"]["hostname"], rows["10.77.3.11"]["os"]),
+                         ("", "SSH-2.0-OpenSSH_9.7"))
+        self.assertEqual((rows["10.77.3.13"]["hostname"], rows["10.77.3.13"]["os"]), ("DC01", ""))
+
     def test_null_auth_and_fields(self):
         rows = sr.parse_nxc_output(NXC_OUTPUT, [], null_auth_attempt=True, resolver=mock.Mock())
         ws = [r for r in rows if r["target"] == "10.0.0.9"][0]
