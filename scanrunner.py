@@ -348,8 +348,9 @@ def redact_command(command):
     return redacted
 
 def is_network_target(target):
-    """Return whether target is a CIDR range that should be discovered by Nmap."""
-    return "/" in target
+    """Return whether target covers several hosts (a CIDR or a 10.0.0.5-20
+    range) that Nmap should discover itself."""
+    return "/" in target or parse_last_octet_range(target) is not None
 
 def load_metadata(path):
     if not path:
@@ -1126,6 +1127,8 @@ def resolve_scan_target(target, timeout=8):
         if "/" in target:
             ipaddress.ip_network(target, strict=False)
             return target, "CIDR target; DNS resolution not required"
+        if parse_last_octet_range(target):
+            return target, "IP range target; DNS resolution not required"
         ipaddress.ip_address(target)
         return target, "IP target; DNS resolution not required"
     except ValueError:
@@ -3424,7 +3427,7 @@ def main():
                 print(c(C.DIM, f"\n  Skipping wrapper ping for {ip} ({reason})."))
             elif is_network_target(ip):
                 print(c(C.DIM,
-                        f"\n  Skipping wrapper ping for CIDR target {ip}; "
+                        f"\n  Skipping wrapper ping for network target {ip}; "
                         "Nmap will perform host discovery."))
             else:
                 print(c(C.DIM, f"\n  Pinging {ip} ..."))

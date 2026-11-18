@@ -870,6 +870,17 @@ class ParallelEndToEndTests(EndToEndBase):
         self.assertTrue(error_log.exists())
         self.assertIn("due to host timeout", error_log.read_text())
 
+    def test_range_target_is_not_wrapper_pinged(self):
+        # Pinging "10.0.0.1-3" as one host always fails; Nmap must get the range.
+        for extra in ([], ["--parallel", "2"]):
+            self.clear_nmap_calls()
+            shutil.rmtree(self.out, ignore_errors=True)
+            self.scenarios(**{"10.0.0.1-3": {"kind": "up", "ports": [[22, "tcp", "ssh", ""]]}})
+            result = self.run_scan("-i", "10.0.0.1-3", "--yes", *extra)
+            self.assertEqual(result.returncode, 0, self.last_output)
+            self.assertEqual([call[-1] for call in self.nmap_calls()], ["10.0.0.1-3"], extra)
+            self.assertNotIn("did not respond to ping", self.last_output)
+
     def test_redirected_output_has_no_color_codes(self):
         self.scenarios(**{"10.0.0.1": {"kind": "up", "ports": [[22, "tcp", "ssh", ""]]}})
         result = run_cli("-i", "10.0.0.1", "--yes", "--skip-ping", "-o", str(self.out),
