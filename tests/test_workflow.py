@@ -556,6 +556,17 @@ class NxcTests(unittest.TestCase):
         self.assertEqual(sr.redact_command(command)[-1], "--password=***")
 
 
+    def test_query_all_attempts_null_auth(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+             mock.patch.object(sr.subprocess, "Popen") as popen, \
+             mock.patch("builtins.print"):
+            popen.return_value.stdout = iter([])
+            popen.return_value.returncode = 0
+            sr.run_nxc("nxc", "smb", "10.0.0.5", ["10.0.0.5"], [], ["all"], tmp)
+            command = popen.call_args[0][0]
+        self.assertEqual(command[-4:], ["-u", "", "-p", ""])
+
+
 class FatalErrorTests(unittest.TestCase):
     def test_markers(self):
         self.assertIn("root", sr.nmap_fatal_reason(

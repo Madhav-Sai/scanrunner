@@ -1415,11 +1415,11 @@ def run_nxc(binary, protocol, target_source, targets, nxc_extra, queries, output
         token in {"-u", "--username", "-p", "--password"}
         or token.startswith(("--username=", "--password="))
         for token in effective_extra)
-    if "null-auth" in queries and not credential_supplied:
+    if ("null-auth" in queries or "all" in queries) and not credential_supplied:
         effective_extra.extend(["-u", "", "-p", ""])
 
     command = [binary, protocol, target_source, *effective_extra]
-    print(c(C.DIM, "  Command : " + " ".join(redact_command(command))))
+    print(c(C.DIM, "  Command : " + " ".join(part or "''" for part in redact_command(command))))
     print(c(C.DIM, "─" * 70))
 
     try:
