@@ -1,3 +1,24 @@
+# scanrunner v1.7.1
+
+Bug fixes found by running v1.7.0 for real on Kali (Docker lab, real Nmap,
+NetExec 1.5.1, PingMe 3.3.0, qterminal tabs). No new options.
+
+## Fixes
+
+- `10.0.0.1-20` range targets were pinged as one host, which always fails, so
+  the range was logged as no-ping and never scanned; Nmap now does the host
+  discovery, as for a CIDR
+- `--nxc-query all` now attempts the SMB null session, so the Null Auth column
+  and finding are filled in (only `null-auth` did before)
+- Linux tab windows stay open when their part is done (press Enter to close),
+  like Windows and macOS tabs
+- Closing the launching window no longer kills running tabs (tab windows and
+  background tabs run in their own session)
+- No colour escape codes when output is redirected or piped
+- `python3 install.py` falls back to a `~/.local/bin` install when sudo can't
+  run instead of failing; `--system` still requires sudo
+- Fixed a flaky Windows CI test (fake Nmap call log lost lines in parallel)
+
 # scanrunner v1.7.0
 
 Back to the simple scanrunner. The v1.5/v1.6 "assessment framework" rewrite made
