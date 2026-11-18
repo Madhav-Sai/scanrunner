@@ -41,7 +41,7 @@ from datetime import datetime
 from urllib.parse import urlsplit
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-__version__ = "1.7.1"
+__version__ = "1.7.2"
 
 # When an interactive run has at least this many pending targets, offer to
 # split the work across separate terminal tabs (see offer_terminal_tabs()).

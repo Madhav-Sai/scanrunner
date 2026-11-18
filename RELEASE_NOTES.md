@@ -1,3 +1,13 @@
+# scanrunner v1.7.2
+
+## Changes
+
+- Help pages are coloured on a terminal: cyan banner, yellow headings, green
+  commands and options. Piped/redirected help and `--no-color` stay plain text
+- The banner's first line keeps its indent in `scanrunner -h`
+- Colours also work in the classic Windows console window, not only in
+  Windows Terminal
+
 # scanrunner v1.7.1
 
 Bug fixes found by running v1.7.0 for real on Kali against a Docker lab (Samba,
