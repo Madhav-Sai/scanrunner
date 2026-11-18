@@ -2586,7 +2586,7 @@ def _spawn_background(command, cwd, log_path):
         subprocess.Popen(command, cwd=cwd, stdout=log_file, stderr=subprocess.STDOUT)
 
 
-def offer_terminal_tabs(args, pending_ips, output_dir):
+def offer_terminal_tabs(args, pending_ips, output_dir, on_finished=None):
     """Offer to split a large pending list across separate terminal tabs.
 
     Returns True if tabs were launched (caller should stop; this window does
@@ -2617,15 +2617,17 @@ def offer_terminal_tabs(args, pending_ips, output_dir):
                 f"  [!] Enter a number from 2 to {len(pending_ips)} — continuing in this window.\n"))
         return False
 
-    _launch_tabs(args, pending_ips, output_dir, tab_count)
-    return True
+    return _launch_tabs(args, pending_ips, output_dir, tab_count, on_finished)
 
 
-def _launch_tabs(args, pending_ips, output_dir, tab_count):
+def _launch_tabs(args, pending_ips, output_dir, tab_count, on_finished=None):
     """Split pending_ips into tab_count parts and spawn a scanrunner tab for each.
 
     Shared by the interactive prompt (offer_terminal_tabs) and the explicit
     --tabs N flag. Caller is responsible for validating tab_count first.
+    Once every tab has finished, on_finished() runs in this window: each tab
+    window may close as soon as its own part is done, so this is where the
+    whole list gets its summary and reconciliation.
     """
     tabs_dir = os.path.join(output_dir, "tabs")
     os.makedirs(tabs_dir, exist_ok=True)
@@ -2686,7 +2688,8 @@ def _launch_tabs(args, pending_ips, output_dir, tab_count):
     print(c(C.CYAN, f"  [i] All tabs write their reports directly into {output_dir}/."))
     print(c(C.CYAN, f"  [i] Target-to-tab manifest saved: {manifest_path}"))
 
-    _watch_tab_progress(output_dir, pending_ips, since=launched_at)
+    if _watch_tab_progress(output_dir, pending_ips, since=launched_at) and on_finished:
+        on_finished()
     return True
 
 
@@ -2699,12 +2702,13 @@ def _watch_tab_progress(output_dir, pending_ips, poll_interval=3, since=None):
     Redraws in place; Ctrl+C detaches (the tabs keep scanning) rather than
     killing anything. Only outcomes logged at or after `since` (the launch
     time) count, so leftovers from an earlier run don't show as progress.
+    Returns True when every target is accounted for, False if not watched.
     """
     if not sys.stdout.isatty():
         print(c(C.YELLOW,
                 "  [!] Not an interactive terminal — not tracking tab progress here. "
                 f"Check {output_dir}/unaccounted.txt and the open-ports inventory when done.\n"))
-        return
+        return False
 
     retry_file     = os.path.join(output_dir, "retried.txt")
 
@@ -2770,13 +2774,10 @@ def _watch_tab_progress(output_dir, pending_ips, poll_interval=3, since=None):
         print(c(C.YELLOW,
                 "\n  [~] Stopped watching — tabs are still running in the background. "
                 f"Re-check {output_dir}/ any time.\n"))
-        return
+        return False
 
     print(c(C.GREEN + C.BOLD, "  [+] All tabs finished."))
-    unaccounted_path = os.path.join(output_dir, "unaccounted.txt")
-    if os.path.exists(unaccounted_path):
-        print(c(C.RED, f"  [!] Some targets were unaccounted for — see {unaccounted_path}"))
-    print()
+    return True
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -3234,10 +3235,10 @@ def main():
                     f"  [!] --tabs {args.tabs} exceeds the {total_pending} pending target(s) "
                     f"— enter a number from 2 to {total_pending}."))
             sys.exit(1)
-        _launch_tabs(args, pending_ips, output_dir, args.tabs)
+        _launch_tabs(args, pending_ips, output_dir, args.tabs, on_finished=finish)
         return
 
-    if offer_terminal_tabs(args, pending_ips, output_dir):
+    if offer_terminal_tabs(args, pending_ips, output_dir, on_finished=finish):
         return
 
     print(c(C.CYAN + C.BOLD, f"  [*] {total_pending} IP(s) queued.\n"))

@@ -16,6 +16,7 @@ import sys
 import tempfile
 import textwrap
 import time
+import types
 import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -454,6 +455,31 @@ class TabDashboardTests(unittest.TestCase):
             text = sr.strip_ansi(out.getvalue())
         self.assertIn("(1/2 accounted for)", text)
         self.assertIn("Stopped watching", text)
+
+    def test_finished_tabs_run_the_summary_here(self):
+        # Linux tab windows close when their part ends, so the launching window
+        # must print the summary/reconciliation for the whole list.
+        with tempfile.TemporaryDirectory() as tmp:
+            pending = ["10.0.0.1", "10.0.0.2"]
+
+            def spawn(command, *_):
+                for target in pending:
+                    log_line(os.path.join(tmp, "completed.txt"), target, datetime.now())
+                return True
+
+            args = types.SimpleNamespace(nmap_extra=[], retries=0, skip_ping=False,
+                                         skip_no_ping=False, no_color=False, scope_file=None,
+                                         metadata_csv=None, html_report=False)
+            out = io.StringIO()
+            out.isatty = lambda: True
+            on_finished = mock.Mock()
+            with mock.patch.dict(os.environ, {"SCANRUNNER_BACKGROUND_TABS": "0"}), \
+                 mock.patch.object(sr, "_spawn_windows_terminal", side_effect=spawn), \
+                 mock.patch.object(sr, "_spawn_macos_terminal", side_effect=spawn), \
+                 mock.patch.object(sr, "_spawn_linux_terminal", side_effect=spawn), \
+                 mock.patch("sys.stdout", out):
+                sr._launch_tabs(args, pending, tmp, 2, on_finished=on_finished)
+        on_finished.assert_called_once_with()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
