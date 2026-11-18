@@ -1,7 +1,9 @@
 # scanrunner v1.7.1
 
-Bug fixes found by running v1.7.0 for real on Kali (Docker lab, real Nmap,
-NetExec 1.5.1, PingMe 3.3.0, qterminal tabs). No new options.
+Bug fixes found by running v1.7.0 for real on Kali against a Docker lab (Samba,
+legacy SMBv1 Samba, a Samba AD DC, SSH, FTP, IPv6, a high-latency host) with
+real Nmap 7.99, NetExec 1.5.1 and PingMe 3.3.0, and tabs in qterminal,
+gnome-terminal, konsole, xfce4-terminal, xterm and tmux. No new options.
 
 ## Fixes
 
@@ -17,6 +19,19 @@ NetExec 1.5.1, PingMe 3.3.0, qterminal tabs). No new options.
 - No colour escape codes when output is redirected or piped
 - `python3 install.py` falls back to a `~/.local/bin` install when sudo can't
   run instead of failing; `--system` still requires sudo
+- IPv6 targets get `-6` automatically, so IPv6-only and mixed IPv4/IPv6 lists
+  scan (Nmap refused them and scanrunner reported "could not resolve")
+- `-i` or `-f` given twice is now an error; before, only the last one was kept
+  and the other targets were silently dropped
+- The wrapper ping sends two echo requests (up to 2 s), so one lost packet no
+  longer marks a live host as down
+- NXC table: SSH/FTP no longer show the IP as HOSTNAME, LDAP no longer shows
+  "None" as the OS, and later lines (`[*] Enumerated ... users`) can't replace it
+- Tabs in qterminal (Kali's default), konsole and xfce4-terminal no longer break
+  arguments that contain an apostrophe
+- macOS tabs: arguments with `"` or `\` no longer break the Terminal command;
+  Windows Terminal tabs keep `;` inside arguments (unit-tested; not yet run on
+  a real Mac or Windows machine)
 - Fixed a flaky Windows CI test (fake Nmap call log lost lines in parallel)
 
 # scanrunner v1.7.0
