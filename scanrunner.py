@@ -1496,11 +1496,13 @@ def tool_path(name):
 
 
 def ping_host(ip):
+    # Two echo requests, so one lost packet doesn't mark a live host as down.
     if sys.platform == "win32":
-        cmd = [tool_path("ping"), "-n", "1", "-w", "1000", ip]
+        cmd = [tool_path("ping"), "-n", "2", "-w", "2000", ip]
+    elif sys.platform == "darwin":
+        cmd = [tool_path("ping"), "-c", "2", "-i", "0.2", "-W", "2000", ip]
     else:
-        timeout = "1000" if sys.platform == "darwin" else "1"
-        cmd = [tool_path("ping"), "-c", "1", "-W", timeout, ip]
+        cmd = [tool_path("ping"), "-c", "2", "-i", "0.2", "-W", "2", ip]
     r = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return r.returncode == 0
 
