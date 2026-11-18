@@ -726,7 +726,10 @@ print(done.lstrip("# "))
 
 FAKE_PING = r'''#!{python}
 import os, sys
-sys.exit(0 if sys.argv[-1] in os.environ.get("FAKE_PING_UP", "").split(",") else 1)
+up = sys.argv[-1] in os.environ.get("FAKE_PING_UP", "").split(",")
+if up:   # print a real-style echo reply (Windows ping_host requires one)
+    print("Reply from %s: bytes=32 time<1ms TTL=64" % sys.argv[-1])
+sys.exit(0 if up else 1)
 '''
 
 FAKE_NXC = r'''#!{python}
