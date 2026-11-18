@@ -94,7 +94,7 @@ def make_executable(path: Path) -> None:
     path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
-def install_unix_launcher(source: Path, user_install: bool) -> Path:
+def install_unix_launcher(source: Path, user_install: bool, sudo_fallback: bool = False) -> Path:
     make_executable(source)
     destination = Path.home() / ".local/bin/scanrunner" if user_install else Path("/usr/local/bin/scanrunner")
     destination.parent.mkdir(parents=True, exist_ok=True) if user_install else None
@@ -113,7 +113,17 @@ def install_unix_launcher(source: Path, user_install: bool) -> Path:
         destination.symlink_to(absolute_source)
     else:
         info(f"Administrator permission is required to write {destination}")
-        run(["sudo", "ln", "-sfn", str(absolute_source), str(destination)])
+        command = ["sudo", "ln", "-sfn", str(absolute_source), str(destination)]
+        if not sudo_fallback:
+            run(command)
+        else:
+            try:
+                subprocess.run(command, check=True)
+            except (OSError, subprocess.CalledProcessError):
+                # A default install shouldn't fail just because sudo can't
+                # run (no password prompt possible, not a sudoer, ...).
+                warn(f"Could not write {destination} with sudo; installing for this user instead.")
+                return install_unix_launcher(source, True)
 
     success(f"Installed launcher: {destination} -> {absolute_source}")
     return destination
@@ -325,8 +335,8 @@ def main() -> None:
     info(f"Shell: {shell}")
 
     if system in {"linux", "macos"}:
-        user_install = args.user
-        launcher = install_unix_launcher(source, user_install)
+        launcher = install_unix_launcher(source, args.user, sudo_fallback=not args.system)
+        user_install = launcher.parent == Path.home() / ".local/bin"
         if user_install and str(launcher.parent) not in os.environ.get("PATH", "").split(os.pathsep):
             warn(f"{launcher.parent} is not currently in PATH. Add it to your shell configuration.")
     elif system == "windows":
