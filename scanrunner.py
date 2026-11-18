@@ -2566,10 +2566,11 @@ def _spawn_windows_terminal(command, title, cwd):
 
 
 def _spawn_macos_terminal(command, title, cwd):
-    script_command = " ".join(shlex.quote(part) for part in command)
-    apple_script = (
-        f'tell application "Terminal" to do script "cd {shlex.quote(cwd)} && {script_command}"'
-    )
+    shell_command = f"cd {shlex.quote(cwd)} && " + " ".join(shlex.quote(part) for part in command)
+    # Escape for an AppleScript string literal, or a " or \ in an argument
+    # (e.g. --script-args 'ua="x"') would end the string early.
+    escaped = shell_command.replace("\\", "\\\\").replace('"', '\\"')
+    apple_script = f'tell application "Terminal" to do script "{escaped}"'
     try:
         subprocess.Popen(["osascript", "-e", apple_script])
         return True

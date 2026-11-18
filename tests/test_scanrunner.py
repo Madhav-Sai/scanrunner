@@ -314,6 +314,25 @@ class TerminalTabTests(unittest.TestCase):
         self.assertIn("read _", lines[2])
 
 
+    def test_macos_tab_command_survives_applescript_quoting(self):
+        command = ["scanrunner", "--script-args", 'ua="x y"', "a\\b", "it's"]
+        with mock.patch.object(sr.subprocess, "Popen") as popen:
+            self.assertTrue(sr._spawn_macos_terminal(command, "tab", "/w d"))
+        script = popen.call_args[0][0][2]
+        prefix = 'tell application "Terminal" to do script "'
+        self.assertTrue(script.startswith(prefix) and script.endswith('"'))
+        # Decode the AppleScript string literal: \\ -> \ and \" -> "
+        literal, decoded, i = script[len(prefix):-1], "", 0
+        while i < len(literal):
+            if literal[i] == "\\":
+                i += 1
+            else:
+                self.assertNotEqual(literal[i], '"', "unescaped quote ends the string")
+            decoded += literal[i]
+            i += 1
+        self.assertEqual(shlex.split(decoded), ["cd", "/w d", "&&", *command])
+
+
 class NxcParsingTests(unittest.TestCase):
     def test_parse_smb_output(self):
         output = "SMB 10.10.10.10 445 DC01 [*] Windows Server 2022 Build 20348 x64 (name:DC01) (domain:LAB) (signing:True) (SMBv1:False)"
