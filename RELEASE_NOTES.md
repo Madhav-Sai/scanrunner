@@ -25,6 +25,14 @@ gnome-terminal, konsole, xfce4-terminal, xterm and tmux. No new options.
   and the other targets were silently dropped
 - The wrapper ping sends two echo requests (up to 2 s), so one lost packet no
   longer marks a live host as down
+- Windows: a dead IP that answered with "Destination host/net unreachable"
+  counted as alive (Windows ping exits 0 for that); only a real echo reply
+  counts now
+- Windows installer: PowerShell tab completion goes in the profile PowerShell
+  really loads (Windows PowerShell 5.1, OneDrive-redirected Documents), and the
+  installer says how to allow it when the execution policy blocks profiles
+- Tab completion now includes `--pingme`, `--pingme-only`, `--pingme-path` and
+  `--pingme-args`
 - NXC table: SSH/FTP no longer show the IP as HOSTNAME, LDAP no longer shows
   "None" as the OS, and later lines (`[*] Enumerated ... users`) can't replace it
 - Tabs in qterminal (Kali's default), konsole and xfce4-terminal no longer break
