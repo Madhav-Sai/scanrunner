@@ -54,6 +54,32 @@ class HelpAndCompletionTests(unittest.TestCase):
         self.assertIn("Focused help:", result.stdout)
         self.assertNotIn("Target input (choose one):", result.stdout)
 
+    def help_output(self, argv, tty):
+        import io
+        buffer = io.StringIO()
+        buffer.isatty = lambda: tty
+        with mock.patch.object(sys, "argv", ["scanrunner", *argv]), \
+                mock.patch.object(sys, "stdout", buffer), self.assertRaises(SystemExit):
+            sr.handle_topic_help()
+        return buffer.getvalue()
+
+    def test_help_is_coloured_on_a_terminal(self):
+        for argv in ([], ["-h"], ["--pingme", "-h"], ["-h", "--file"]):
+            with self.subTest(argv=argv):
+                output = self.help_output(argv, tty=True)
+                self.assertIn(sr.C.YELLOW, output)
+                self.assertIn(sr.C.GREEN, output)
+        top = self.help_output(["-h"], tty=True)
+        self.assertIn(sr.C.CYAN + sr.C.BOLD + "   _____", top)   # banner keeps its alignment
+
+    def test_help_is_plain_when_piped_or_no_color(self):
+        for argv, tty in ((["-h"], False), (["-h", "--no-color"], True), (["--no-color"], True)):
+            with self.subTest(argv=argv, tty=tty):
+                output = self.help_output(argv, tty)
+                self.assertIn("Focused help:", output)
+                self.assertNotIn("\033[", output)
+        self.assertTrue(self.help_output(["-h"], tty=False).startswith("   _____"))
+
     def test_focused_help_pages(self):
         for args, phrase in [
             (("-nxc", "-h"), "NetExec (NXC) help"),

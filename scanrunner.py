@@ -677,14 +677,48 @@ def print_template_catalog():
         print(f"  {name:<14} {' '.join(options)}")
 
 
+def print_help_text(text):
+    """Print help with colours on a terminal; plain when piped or --no-color.
+
+    Banner cyan, headings yellow, commands/options green, descriptions plain.
+    """
+    if not COLORS_ENABLED:
+        print(text)
+        return
+    lines = text.split("\n")
+    in_banner = text.startswith(HELP_BANNER.strip("\n"))
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if in_banner:
+            if stripped.startswith("scanrunner by"):
+                print(c(C.MAGENTA + C.BOLD, line))
+                in_banner = False
+            else:
+                print(c(C.CYAN + C.BOLD, line))
+            continue
+        if not stripped:
+            print(line)
+        elif index == 0 or (not line[0].isspace() and stripped.endswith(":")):
+            print(c(C.YELLOW + C.BOLD, line))            # title / section heading
+        elif line.startswith("Example:"):
+            print(c(C.YELLOW, "Example:") + c(C.GREEN, line[len("Example:"):]))
+        elif line[0].isspace() and (stripped.startswith("scanrunner")
+                                    or (stripped.startswith("-") and re.search(r"\S\s{2,}\S", stripped))):
+            # "  scanrunner ...   description" or "  --option ARG   description"
+            match = re.match(r"(\s*\S.*?)(\s{2,}.*)?$", line)
+            print(c(C.GREEN, match.group(1)) + (match.group(2) or ""))
+        else:
+            print(line)
+
+
 def print_topic_help(topic):
-    print(HELP_TOPICS[topic].strip())
+    print_help_text(HELP_TOPICS[topic].strip())
     if topic == "templates":
         print_template_catalog()
 
 
 def print_option_help(option):
-    print(OPTION_HELP[option])
+    print_help_text(OPTION_HELP[option])
 
 
 def print_all_option_help():
@@ -756,7 +790,9 @@ _scanrunner "$@"
 
 def handle_topic_help():
     """Route standalone version/help requests before argparse validation."""
-    arguments = sys.argv[1:]
+    global COLORS_ENABLED
+    COLORS_ENABLED = "--no-color" not in sys.argv[1:] and sys.stdout.isatty()
+    arguments = [arg for arg in sys.argv[1:] if arg != "--no-color"]
 
     if len(arguments) == 2 and arguments[0] == "--completion":
         shell = arguments[1].lower()
@@ -774,7 +810,7 @@ def handle_topic_help():
         sys.exit(0)
 
     if not arguments or arguments in (["-h"], ["--help"]):
-        print(TOP_LEVEL_HELP.strip())
+        print_help_text(TOP_LEVEL_HELP.strip("\n"))
         sys.exit(0)
 
     # Any help request associated with NXC belongs to scanrunner's focused
@@ -3094,9 +3130,29 @@ def _utf8_output():
             pass
 
 
+def _enable_windows_colors():
+    """Let the classic Windows console (conhost) show ANSI colours.
+
+    Windows Terminal already does; conhost prints raw "[96m" codes unless
+    virtual-terminal processing is switched on for the console.
+    """
+    if sys.platform != "win32" or not sys.stdout.isatty():
+        return
+    try:
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.GetStdHandle(-11)          # STD_OUTPUT_HANDLE
+        mode = ctypes.c_uint32()
+        if kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+            kernel32.SetConsoleMode(handle, mode.value | 0x0004)   # ENABLE_VIRTUAL_TERMINAL_PROCESSING
+    except Exception:
+        pass
+
+
 def main():
     global COLORS_ENABLED
     _utf8_output()
+    _enable_windows_colors()
     _save_terminal()
     handle_topic_help()
     handle_review_commands()
