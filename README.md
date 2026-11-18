@@ -313,6 +313,16 @@ Any Nmap flag is passed straight to Nmap (`-A`, `-sC`, `-O`, `--script ...`,
 flags (`-oN/-oX/...`) and target input (`-iL`, `-iR`), see
 [Nmap Flags scanrunner Handles Itself](#nmap-flags-scanrunner-handles-itself).
 
+### Keys during a scan
+
+These work on Linux, macOS and Windows while a single host is being scanned:
+
+| Key | Action |
+|---|---|
+| `Space` | Show target, elapsed time and open ports found so far |
+| `Ctrl+X` | Skip the current host (logged as skipped, the run continues) |
+| `Ctrl+C` | Stop the whole run (`--resume` continues it later) |
+
 ---
 
 ## PingMe Host Discovery

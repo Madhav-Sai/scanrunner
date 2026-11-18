@@ -22,6 +22,7 @@ PingMe on top.
 - Resume prompt defaults to resume — just press Enter to skip completed targets
 - `--host-timeout 15m` is added when you don't set one (your own value, or `0`, wins)
 - `--pingme-args` refuses PingMe modes that never finish (`--watch`, `--serve`, ...)
+- Space / Ctrl+X / Ctrl+C scan keys now work on Windows too
 
 ## Fixes
 
@@ -32,6 +33,7 @@ PingMe on top.
 - Nmap `-n` passthrough on Python 3.10
 - No `UnicodeEncodeError` when output is piped or redirected on Windows
 - The whole test suite now runs on Windows too, and never runs the real Nmap
+- Skipping a host no longer leaks Nmap's output pipe
 
 # scanrunner v1.3.0
 

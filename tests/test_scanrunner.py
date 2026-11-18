@@ -217,7 +217,9 @@ class TerminalTabTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             output_dir = os.path.join(tmp, "out")
             os.makedirs(output_dir)
-            with mock.patch.object(sys.stdin, "isatty", return_value=True), \
+            env = {k: v for k, v in os.environ.items() if k != "SCANRUNNER_BACKGROUND_TABS"}
+            with mock.patch.dict(os.environ, env, clear=True), \
+                 mock.patch.object(sys.stdin, "isatty", return_value=True), \
                  mock.patch.object(sr, "safe_input", return_value="3"), \
                  mock.patch.object(sr, "_spawn_windows_terminal", return_value=True) as win_spawn, \
                  mock.patch.object(sr, "_spawn_macos_terminal", return_value=True) as mac_spawn, \
@@ -291,6 +293,31 @@ class CommandTests(unittest.TestCase):
                                      ["--script-args", "user=admin pass=test"])
         self.assertIn("user=admin pass=test", cmd)
         self.assertEqual(cmd[-2:], ["--", "10.0.0.1"])
+
+
+class WindowsLiveKeyTests(unittest.TestCase):
+    """Space/Ctrl+X through msvcrt, simulated so it runs on every OS."""
+
+    def run_with_keys(self, *keys):
+        pending = list(keys)
+        fake_msvcrt = types.SimpleNamespace(kbhit=lambda: bool(pending),
+                                            getwch=lambda: pending.pop(0))
+        slow_nmap = [sys.executable, "-c",
+                     "import time; print('Starting Nmap', flush=True); time.sleep(30)"]
+        with mock.patch.object(sr, "msvcrt", fake_msvcrt), \
+                mock.patch.object(sr, "RAW_MODE_SUPPORTED", False), \
+                mock.patch.object(sr, "LIVE_KEYS_SUPPORTED", True), \
+                mock.patch.object(sr, "_build_nmap_command", return_value=slow_nmap), \
+                mock.patch.object(sr.sys.stdin, "isatty", return_value=True), \
+                mock.patch.object(sr.sys.stdout, "write"):
+            return sr.run_nmap_scan("10.0.0.1", "unused.nmap", [])
+
+    def test_ctrl_x_skips_host(self):
+        self.assertEqual(self.run_with_keys("\xe0", "H", " ", "\x18"), "SKIPPED")
+
+    def test_ctrl_c_key_aborts(self):
+        with self.assertRaises(KeyboardInterrupt):
+            self.run_with_keys("\x03")
 
 
 if __name__ == "__main__":

@@ -16,17 +16,19 @@ import shlex
 import time
 import select
 
-# tty/termios are POSIX-only and back the raw-keystroke live controls
-# (Space/Ctrl+X/Ctrl+C during a scan). They don't exist on Windows, so the
-# live key-watcher is disabled there instead of crashing at import time.
+# Live key controls during a scan (Space/Ctrl+X/Ctrl+C): POSIX reads raw
+# bytes through tty/termios, Windows reads console keys through msvcrt.
 if sys.platform != "win32":
     import tty
     import termios
+    msvcrt = None
 else:
+    import msvcrt
     tty = None
     termios = None
 
 RAW_MODE_SUPPORTED = sys.platform != "win32"
+LIVE_KEYS_SUPPORTED = RAW_MODE_SUPPORTED or msvcrt is not None
 import queue
 import threading
 import argparse
@@ -286,9 +288,6 @@ def latest_outcomes(output_dir, since=None, log_paths=None):
             if target not in best or key > best[target][0]:
                 best[target] = (key, name)
     return {target: name for target, (_, name) in best.items()}
-
-def count_unique_ips(path):
-    return len(read_logged_ips(path))
 
 def sanitize_filename(ip):
     return ip.replace(":", "_").replace("/", "_")
@@ -1986,8 +1985,39 @@ def run_nmap_scan(target, output_file, nmap_extra, use_pn=False):
 
     # ── key watcher thread ────────────────────────────────────────────────────
     # Runs in raw mode — catches Space / Ctrl+X / Ctrl+C as raw bytes.
+    def _handle_key(ch):
+        """Return True when the watcher should stop."""
+        if ch == "\x18":       # Ctrl+X — skip host
+            skip_flag.set()
+            return True
+        if ch == "\x03":       # Ctrl+C — full abort
+            abort_flag.set()
+            return True
+        if ch == " ":          # Space — scanrunner's status block
+            status_requested.set()
+        return False
+
+    def _watch_keys_windows():
+        try:
+            while not skip_flag.is_set() and not _proc_done.is_set() \
+                    and not abort_flag.is_set():
+                if not msvcrt.kbhit():
+                    time.sleep(0.1)
+                    continue
+                ch = msvcrt.getwch()
+                if ch in ("\x00", "\xe0"):   # arrow/function key: drop its 2nd code
+                    msvcrt.getwch()
+                    continue
+                if _handle_key(ch):
+                    break
+        except Exception:
+            pass
+
     def _watch_keys():
-        if not stdin_is_tty or not RAW_MODE_SUPPORTED:
+        if not stdin_is_tty or not LIVE_KEYS_SUPPORTED:
+            return
+        if not RAW_MODE_SUPPORTED:
+            _watch_keys_windows()
             return
         fd = sys.stdin.fileno()
         try:
@@ -1995,18 +2025,8 @@ def run_nmap_scan(target, output_file, nmap_extra, use_pn=False):
             while not skip_flag.is_set() and not _proc_done.is_set() \
                     and not abort_flag.is_set():
                 ready, _, _ = select.select([sys.stdin], [], [], 0.2)
-                if ready:
-                    ch = sys.stdin.read(1)
-                    if ch == "\x18":       # Ctrl+X — skip host
-                        skip_flag.set()
-                        break
-                    elif ch == "\x03":     # Ctrl+C — full abort
-                        abort_flag.set()
-                        break
-                    elif ch == " ":        # Space — request status
-                        # Nmap's own progress lines come from --stats-every;
-                        # this prints scanrunner's status block.
-                        status_requested.set()
+                if ready and _handle_key(sys.stdin.read(1)):
+                    break
         except Exception:
             pass
         finally:
@@ -2061,7 +2081,7 @@ def run_nmap_scan(target, output_file, nmap_extra, use_pn=False):
                 c(C.DIM,  f"  scanning {target}") +
                 (c(C.GREEN, f"  |  {len(open_ports)} open") if open_ports else "") +
                 (c(C.DIM, "   Space=status  Ctrl+X=skip  Ctrl+C=exit")
-                 if stdin_is_tty and RAW_MODE_SUPPORTED else "")
+                 if stdin_is_tty and LIVE_KEYS_SUPPORTED else "")
             )
             continue
 
@@ -2122,6 +2142,10 @@ def run_nmap_scan(target, output_file, nmap_extra, use_pn=False):
         reader.join(timeout=2)
         watcher.join(timeout=1)
         restore_terminal()
+        try:
+            proc.stdout.close()
+        except Exception:
+            pass
 
         if abort_flag.is_set():
             raise KeyboardInterrupt
@@ -3408,7 +3432,7 @@ def main():
 
             # ── Run scan ─────────────────────────────────────────────────────
             print(c(C.MAGENTA + C.BOLD, f"\n  [>] Scanning {ip}"))
-            if sys.stdin.isatty() and RAW_MODE_SUPPORTED:
+            if sys.stdin.isatty() and LIVE_KEYS_SUPPORTED:
                 print(c(C.DIM,
                         "      Space = status   "
                         "Ctrl+X = skip host   "
