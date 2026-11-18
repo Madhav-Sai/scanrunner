@@ -1509,8 +1509,15 @@ def ping_host(ip):
         cmd = [tool_path("ping"), "-c", "2", "-i", "0.2", "-W", "2000", ip]
     else:
         cmd = [tool_path("ping"), "-c", "2", "-i", "0.2", "-W", "2", ip]
-    r = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return r.returncode == 0
+    if sys.platform != "win32":
+        r = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return r.returncode == 0
+    # Windows ping exits 0 on "Destination host/net unreachable" from a router
+    # or this PC, so only a real echo reply counts: "TTL=64" (IPv4) or
+    # "time<1ms"/"time=5ms" (IPv6 replies have no TTL; any language).
+    r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                       text=True, encoding="utf-8", errors="replace")
+    return r.returncode == 0 and bool(re.search(r"TTL=\d+|[=<]\d+ ?ms\b", r.stdout or "", re.I))
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

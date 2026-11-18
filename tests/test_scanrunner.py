@@ -360,6 +360,33 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(cmd[-2:], ["--", "10.0.0.1"])
 
 
+class WindowsPingTests(unittest.TestCase):
+    """Windows ping exits 0 on 'Destination ... unreachable'; only replies count."""
+
+    def ping(self, output, code=0):
+        result = subprocess.CompletedProcess([], code, stdout=output)
+        with mock.patch.object(sr.sys, "platform", "win32"), \
+                mock.patch.object(sr, "tool_path", return_value="ping"), \
+                mock.patch.object(sr.subprocess, "run", return_value=result):
+            return sr.ping_host("192.168.89.250")
+
+    def test_unreachable_reply_is_not_alive(self):
+        self.assertFalse(self.ping(
+            "Request timed out.\r\n"
+            "Reply from 139.167.50.145: Destination net unreachable.\r\n"
+            "    Packets: Sent = 2, Received = 1, Lost = 1 (50% loss),\r\n"))
+        self.assertFalse(self.ping(
+            "Reply from 192.168.89.1: Destination host unreachable.\r\n"
+            "Reply from 192.168.89.1: Destination host unreachable.\r\n"))
+
+    def test_echo_replies_are_alive(self):
+        self.assertTrue(self.ping("Reply from 192.168.89.129: bytes=32 time<1ms TTL=64\r\n"))
+        self.assertTrue(self.ping("Reply from ::1: time<1ms \r\n"))          # IPv6: no TTL
+
+    def test_failed_exit_code_is_not_alive(self):
+        self.assertFalse(self.ping("Reply from 10.0.0.1: bytes=32 time=3ms TTL=64\r\n", code=1))
+
+
 class WindowsLiveKeyTests(unittest.TestCase):
     """Space/Ctrl+X through msvcrt, simulated so it runs on every OS."""
 
