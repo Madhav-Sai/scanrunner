@@ -2563,6 +2563,11 @@ def _terminal_failed_to_start(process, grace=0.5):
 
 
 def _spawn_linux_terminal(command, title, cwd):
+    # Keep the tab open after its part finishes so its results and any errors
+    # stay readable, as Windows (cmd /k) and macOS Terminal already do.
+    command = ["sh", "-c",
+               '"$@"; printf "\\n  [scanrunner] This tab is done. Press Enter to close it. "; read _',
+               "scanrunner-tab", *command]
     if os.environ.get("TMUX"):
         try:
             process = subprocess.Popen(["tmux", "new-window", "-n", title, "-c", cwd, *command])
@@ -2588,7 +2593,8 @@ def _spawn_linux_terminal(command, title, cwd):
         candidates.append([xterm, "-T", title, "-e", *command])
     for candidate in candidates:
         try:
-            process = subprocess.Popen(candidate, cwd=cwd)
+            # Own session: closing the launching window must not hang up the tabs.
+            process = subprocess.Popen(candidate, cwd=cwd, start_new_session=True)
         except OSError:
             continue
         if not _terminal_failed_to_start(process):
@@ -2603,7 +2609,9 @@ def _spawn_background(command, cwd, log_path):
     tab, it still runs, in the background, with its own log file to watch.
     """
     with open(log_path, "w", encoding="utf-8") as log_file:
-        subprocess.Popen(command, cwd=cwd, stdout=log_file, stderr=subprocess.STDOUT)
+        # Own session (POSIX): closing the launching window must not kill it.
+        subprocess.Popen(command, cwd=cwd, stdout=log_file, stderr=subprocess.STDOUT,
+                         stdin=subprocess.DEVNULL, start_new_session=True)
 
 
 def offer_terminal_tabs(args, pending_ips, output_dir, on_finished=None):

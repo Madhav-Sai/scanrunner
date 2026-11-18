@@ -277,6 +277,21 @@ class TerminalTabTests(unittest.TestCase):
             self.assertEqual(background_spawn.call_count, 2)
 
 
+    def test_linux_tab_stays_open_after_its_scan(self):
+        process = mock.Mock()
+        process.wait.side_effect = subprocess.TimeoutExpired("x", 0.5)
+        with mock.patch.dict(os.environ, {"DISPLAY": ":0"}, clear=True), \
+             mock.patch.object(sr.shutil, "which",
+                               side_effect=lambda name: "/usr/bin/xterm" if name == "xterm" else None), \
+             mock.patch.object(sr.subprocess, "Popen", return_value=process) as popen:
+            self.assertTrue(sr._spawn_linux_terminal(["scanrunner", "-f", "t 1.txt"], "tab 1/2", "/w"))
+        argv = popen.call_args[0][0]
+        self.assertEqual(argv[:4], ["/usr/bin/xterm", "-T", "tab 1/2", "-e"])
+        self.assertEqual(argv[4:6], ["sh", "-c"])
+        self.assertIn("read", argv[6])
+        self.assertEqual(argv[-3:], ["scanrunner", "-f", "t 1.txt"])
+
+
 class NxcParsingTests(unittest.TestCase):
     def test_parse_smb_output(self):
         output = "SMB 10.10.10.10 445 DC01 [*] Windows Server 2022 Build 20348 x64 (name:DC01) (domain:LAB) (signing:True) (SMBv1:False)"
