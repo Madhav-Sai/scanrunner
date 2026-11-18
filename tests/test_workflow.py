@@ -620,8 +620,11 @@ FAKE_NMAP = r'''#!{python}
 import json, os, sys
 argv = sys.argv[1:]
 if os.environ.get("FAKE_NMAP_ARGV_LOG"):
-    with open(os.environ["FAKE_NMAP_ARGV_LOG"], "a") as f:
-        f.write(json.dumps(argv) + "\n")
+    # One file per call: parallel appends to a shared file can lose lines on Windows.
+    import time
+    log_dir = os.environ["FAKE_NMAP_ARGV_LOG"]
+    with open(os.path.join(log_dir, "%020d-%d.json" % (time.time_ns(), os.getpid())), "w") as f:
+        f.write(json.dumps(argv))
 target = argv[argv.index("--") + 1]
 normal = argv[argv.index("-oN") + 1]
 xml = argv[argv.index("-oX") + 1]
@@ -712,7 +715,8 @@ class EndToEndBase(unittest.TestCase):
                 path.chmod(0o755)
         self.state = self.root / "state"
         self.state.mkdir()
-        self.argv_log = self.root / "nmap-argv.jsonl"
+        self.argv_log = self.root / "nmap-argv"
+        self.argv_log.mkdir()
         self.out = self.root / "out"
         self.env = dict(os.environ, PATH=f"{self.bin}{os.pathsep}{os.environ['PATH']}",
                         FAKE_NMAP_STATE=str(self.state), FAKE_NMAP_ARGV_LOG=str(self.argv_log),
@@ -745,9 +749,11 @@ class EndToEndBase(unittest.TestCase):
         return sr.read_logged_ips(str(self.out / name))
 
     def nmap_calls(self):
-        if not self.argv_log.exists():
-            return []
-        return [json.loads(line) for line in self.argv_log.read_text().splitlines()]
+        return [json.loads(path.read_text()) for path in sorted(self.argv_log.iterdir())]
+
+    def clear_nmap_calls(self):
+        for path in self.argv_log.iterdir():
+            path.unlink()
 
     def inventory(self):
         with open(self.out / "open-ports-inventory.json", encoding="utf-8") as f:
@@ -819,7 +825,7 @@ class SerialEndToEndTests(EndToEndBase):
         report.write_text(INCOMPLETE_REPORT)
         later = datetime.now().timestamp() + 5
         os.utime(report, (later, later))
-        self.argv_log.unlink()
+        self.clear_nmap_calls()
         self.run_scan("-f", target_file, "--resume", "--yes", "--skip-ping")
         self.assertEqual([call[-1] for call in self.nmap_calls()], ["10.0.0.2"])
         self.assertEqual(sr.get_file_status(str(report)), "COMPLETE")
@@ -829,7 +835,7 @@ class SerialEndToEndTests(EndToEndBase):
         self.scenarios(**{"10.0.0.2": {"kind": "down"}})
         target_file = self.targets("10.0.0.1", "10.0.0.2")
         self.run_scan("-f", target_file, "--yes", "--skip-ping")
-        self.argv_log.unlink()
+        self.clear_nmap_calls()
         self.scenarios()
         self.run_scan("-f", target_file, "--resume", "--yes", "--skip-ping")
         self.assertEqual([call[-1] for call in self.nmap_calls()], ["10.0.0.2"])
