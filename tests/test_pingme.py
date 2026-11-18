@@ -19,8 +19,10 @@ spec = importlib.util.spec_from_file_location("scanrunner_pingme", SCRIPT)
 sr = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(sr)
 
-# Mimics PingMe: the targets file is the first argument; live IPs come from
-# FAKE_PINGME_UP; every other target (or each host of a CIDR) is "dead".
+# Mimics PingMe 3.x: targets are the arguments before the first option, each
+# either a file or a CIDR. Like the real PingMe, a file may only hold single
+# hosts (a CIDR or a 10.0.0.1-5 range line there is "unresolvable"). Live IPs
+# come from FAKE_PINGME_UP; every other address is "dead".
 FAKE_PINGME = r'''
 import ipaddress, json, os, sys
 argv = sys.argv[1:]
@@ -29,13 +31,23 @@ def opt(name):
 with open(os.environ["FAKE_PINGME_ARGV_LOG"], "a") as f:   # one line per PingMe run
     f.write(json.dumps(argv) + "\n")
 up = set(filter(None, os.environ.get("FAKE_PINGME_UP", "").split(",")))
-targets = [line.strip() for line in open(argv[0]) if line.strip()]
+positional = []
+for arg in argv:
+    if arg.startswith("-"):
+        break
+    positional.append(arg)
 addresses = []
-for target in targets:
-    if "/" in target:
-        addresses += [str(ip) for ip in ipaddress.ip_network(target, strict=False).hosts()]
+for target in positional:
+    if os.path.isfile(target):
+        for line in open(target):
+            line = line.strip()
+            if line and "/" not in line and "-" not in line:
+                addresses.append(line)
     else:
-        addresses.append(target)
+        addresses += [str(ip) for ip in ipaddress.ip_network(target, strict=False).hosts()]
+if not addresses:
+    print("No valid IPs or resolvable hostnames supplied.")
+    sys.exit(1)
 def row(ip, alive):
     return {"ip": ip, "alive": alive, "status": "REACHABLE" if alive else "NO RESPONSE",
             "hostname": "", "tcp_open": []}
@@ -58,6 +70,11 @@ class FilterLiveTargetsTests(unittest.TestCase):
         # The CIDR becomes its live hosts; probe errors are kept, not dropped.
         self.assertEqual(live, ["10.0.0.1", "10.0.0.3", "10.9.0.2", "web01"])
         self.assertEqual(dead, ["10.0.0.2", "10.8.0.0/30"])
+
+    def test_last_octet_range_becomes_its_live_hosts(self):
+        live, dead = sr.filter_live_targets(
+            ["10.0.0.5-9", "10.0.1.1-3"], {"alive": [{"ip": "10.0.0.7"}, {"ip": "10.0.0.10"}]})
+        self.assertEqual((live, dead), (["10.0.0.7"], ["10.0.1.1-3"]))
 
     def test_hostname_matched_by_resolved_address(self):
         with mock.patch.object(sr, "resolve_scan_target", return_value=("10.0.0.5", "")):
@@ -132,6 +149,23 @@ class PingmeOnlyEndToEndTests(unittest.TestCase):
         argv = json.loads(self.argv_log.read_text().splitlines()[-1])
         self.assertIn("--tcp-ports", argv)
         self.assertEqual(argv[argv.index("--out-format") + 1], "json")
+
+    def test_cidr_only_and_range_targets(self):
+        # Real PingMe rejects CIDRs and ranges inside a targets file.
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT), "-i", "10.9.0.0/30", "--pingme-only",
+             "--pingme-path", str(self.pingme), "-o", str(self.out), "--no-color"],
+            text=True, encoding="utf-8", errors="replace", capture_output=True,
+            stdin=subprocess.DEVNULL, env=self.env, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((self.out / "pingme" / "live.txt").read_text().split(), ["10.9.0.2"])
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT), "-i", "10.0.0.1-3", "--pingme-only",
+             "--pingme-path", str(self.pingme), "-o", str(self.out), "--no-color"],
+            text=True, encoding="utf-8", errors="replace", capture_output=True,
+            stdin=subprocess.DEVNULL, env=self.env, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((self.out / "pingme" / "live.txt").read_text().split(), ["10.0.0.1"])
 
     def test_missing_pingme_is_a_clear_error(self):
         result = subprocess.run(

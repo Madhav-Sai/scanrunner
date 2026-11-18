@@ -1546,9 +1546,22 @@ def run_pingme(command_prefix, targets, work_dir, extra=(), no_color=False):
     or None when PingMe could not complete the sweep.
     """
     os.makedirs(work_dir, exist_ok=True)
+    # PingMe reads only single hosts from a targets file: CIDRs go on its
+    # command line, and last-octet ranges (which it doesn't know) are
+    # expanded to their addresses.
+    networks, hosts = [], []
+    for target in targets:
+        octet_range = parse_last_octet_range(target)
+        if octet_range:
+            first, last = (int(address) for address in octet_range)
+            hosts.extend(str(ipaddress.ip_address(value)) for value in range(first, last + 1))
+        elif is_network_target(target):
+            networks.append(target)
+        else:
+            hosts.append(target)
     targets_file = os.path.join(work_dir, "targets.txt")
     with open(targets_file, "w", encoding="utf-8") as file:
-        file.write("\n".join(targets) + "\n")
+        file.write("".join(host + "\n" for host in hosts))
     files = {name: os.path.join(work_dir, f"{name}.json") for name in ("alive", "dead", "errors")}
     for path in files.values():
         if os.path.exists(path):
@@ -1557,7 +1570,7 @@ def run_pingme(command_prefix, targets, work_dir, extra=(), no_color=False):
     # unless the user chose a --data-dir themselves.
     data_dir = [] if "--data-dir" in extra else ["--data-dir", os.path.join(work_dir, "data")]
     # User options first; scanrunner's output options last so they win.
-    command = [*command_prefix, targets_file, *data_dir, *extra,
+    command = [*command_prefix, *([targets_file] if hosts else []), *networks, *data_dir, *extra,
                "--out-format", "json",
                "--alive-out", files["alive"], "--dead-out", files["dead"],
                "--error-out", files["errors"],
@@ -1597,8 +1610,9 @@ def _ip_or_none(value):
 def filter_live_targets(targets, results):
     """Split targets into (live, dead) using PingMe results.
 
-    A CIDR becomes the list of its live host IPs. Hosts whose probe errored
-    are kept (unknown is not the same as down) so nothing is silently dropped.
+    A CIDR or last-octet range becomes the list of its live host IPs. Hosts
+    whose probe errored are kept (unknown is not the same as down) so nothing
+    is silently dropped.
     """
     keep_rows = results.get("alive", []) + results.get("errors", [])
     live_ips = {ip for ip in (_ip_or_none(row.get("ip")) for row in keep_rows) if ip}
@@ -1606,18 +1620,24 @@ def filter_live_targets(targets, results):
     live_names.discard("")
     live, dead = [], []
     for target in targets:
+        octet_range = parse_last_octet_range(target)
+        network = None
         if "/" in target:
             try:
                 network = ipaddress.ip_network(target, strict=False)
             except ValueError:
-                network = None
-            if network is not None:
+                pass
+        if octet_range or network is not None:
+            if octet_range:
+                hits = sorted(ip for ip in live_ips if ip.version == 4
+                              and octet_range[0] <= ip <= octet_range[1])
+            else:
                 hits = sorted(ip for ip in live_ips if ip.version == network.version and ip in network)
-                if hits:
-                    live.extend(str(ip) for ip in hits)
-                else:
-                    dead.append(target)
-                continue
+            if hits:
+                live.extend(str(ip) for ip in hits)
+            else:
+                dead.append(target)
+            continue
         address = _ip_or_none(target)
         if address is None:
             resolved, _ = resolve_scan_target(target)
