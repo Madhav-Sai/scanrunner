@@ -86,6 +86,10 @@ class PingmeArgumentTests(unittest.TestCase):
         self.assertEqual(args.pingme_extra, ["--tcp-ports", "22,445", "--fast"])
         self.assertEqual(args.nmap_extra, ["-A"])
 
+    def test_single_option_pingme_args(self):
+        self.assertEqual(self.parse("-i", "10.0.0.1", "--pingme", "--pingme-args", "--fast").pingme_extra,
+                         ["--fast"])
+
     def test_pingme_only_implies_pingme(self):
         self.assertTrue(self.parse("-i", "10.0.0.1", "--pingme-only").pingme)
 

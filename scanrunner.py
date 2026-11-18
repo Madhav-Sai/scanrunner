@@ -841,6 +841,12 @@ def preprocess_argv(argv):
     index = 0
     while index < len(argv):
         token = argv[index]
+        # argparse rejects a value that looks like an option ("--fast"), so
+        # bind the PingMe options string to its flag explicitly.
+        if token == "--pingme-args" and index + 1 < len(argv):
+            result.append("--pingme-args=" + argv[index + 1])
+            index += 2
+            continue
         # Python 3.10 argparse still abbreviates single-dash long options even
         # with allow_abbrev=False. Keep Nmap's -n out of argparse entirely.
         if token == "-n" and not nxc_mode:
