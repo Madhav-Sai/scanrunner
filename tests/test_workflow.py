@@ -500,6 +500,17 @@ class NxcTests(unittest.TestCase):
         rows = sr.parse_nxc_output("Running nxc against 3 targets 100 0:00:00 x\n", [], resolver=mock.Mock())
         self.assertEqual(rows, [])
 
+    def test_share_listing_does_not_overwrite_os(self):
+        output = (
+            "SMB 10.77.1.10 445 SMB1 [*] Unix - Samba (name:SMB1) (domain:SMB1) (signing:True) (SMBv1:None)\n"
+            "SMB 10.77.1.10 445 SMB1 [+] SMB1\\labuser:secret\n"
+            "SMB 10.77.1.10 445 SMB1 [*] Enumerated shares\n"
+            "SMB 10.77.1.10 445 SMB1 Share           Permissions     Remark\n"
+            "SMB 10.77.1.10 445 SMB1 IPC$                            IPC Service (Samba 4.19.9)\n"
+        )
+        rows = sr.parse_nxc_output(output, ["10.77.1.10"], resolver=mock.Mock())
+        self.assertEqual(rows[0]["os"], "Unix - Samba")
+
     def test_null_auth_and_fields(self):
         rows = sr.parse_nxc_output(NXC_OUTPUT, [], null_auth_attempt=True, resolver=mock.Mock())
         ws = [r for r in rows if r["target"] == "10.0.0.9"][0]

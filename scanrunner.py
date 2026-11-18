@@ -1259,12 +1259,13 @@ def parse_nxc_output(output, targets, null_auth_attempt=False, resolver=None):
         name = re.search(r"\(name:([^)]*)\)", details, re.IGNORECASE)
         if name:
             row["hostname"] = name.group(1)
-        operating_system = details.split(" (name:", 1)[0]
-        if operating_system.startswith("[*] "):
-            operating_system = operating_system[4:]
-        operating_system = operating_system.strip()
-        if operating_system and not operating_system.startswith(("[+]", "[-]", "[!]") ):
-            row["os"] = operating_system
+        # The OS comes from the host banner ("[*] Windows ... (name:DC01) ...").
+        # Later lines (share listings, "[*] Enumerated shares", module output)
+        # must not overwrite it.
+        if details.startswith("[*] ") and (name or not row["os"]):
+            operating_system = details[4:].split(" (name:", 1)[0].strip()
+            if operating_system:
+                row["os"] = operating_system
         for field, pattern in (
             ("smbv1", r"SMBv1:(True|False|None)"),
             ("smb_signing", r"signing:(True|False|None)"),
