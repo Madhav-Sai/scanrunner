@@ -333,6 +333,15 @@ class TerminalTabTests(unittest.TestCase):
         self.assertEqual(shlex.split(decoded), ["cd", "/w d", "&&", *command])
 
 
+    def test_windows_terminal_semicolons_stay_in_the_argument(self):
+        with mock.patch.object(sr.shutil, "which", return_value="wt.exe"), \
+             mock.patch.object(sr.subprocess, "Popen") as popen:
+            self.assertTrue(sr._spawn_windows_terminal(
+                ["py", "--script-args", "a=1;b=2"], "tab", "C:\\w"))
+        argv = popen.call_args[0][0]
+        self.assertEqual(argv[argv.index("--") + 1:], ["py", "--script-args", "a=1\\;b=2"])
+
+
 class NxcParsingTests(unittest.TestCase):
     def test_parse_smb_output(self):
         output = "SMB 10.10.10.10 445 DC01 [*] Windows Server 2022 Build 20348 x64 (name:DC01) (domain:LAB) (signing:True) (SMBv1:False)"

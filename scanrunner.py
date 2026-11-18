@@ -2550,7 +2550,9 @@ def _spawn_windows_terminal(command, title, cwd):
     wt = shutil.which("wt.exe") or shutil.which("wt")
     if wt:
         try:
-            subprocess.Popen([wt, "new-tab", "--title", title, "-d", cwd, "--", *command])
+            # wt splits its command line on ";" even after "--"; "\;" is a literal ";".
+            subprocess.Popen([wt, "new-tab", "--title", title, "-d", cwd, "--",
+                              *(part.replace(";", "\\;") for part in command)])
             return True
         except OSError:
             pass
