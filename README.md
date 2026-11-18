@@ -16,52 +16,6 @@
 
 </div>
 
-## Download and install
-
-Get the **application ZIP** from the [latest release](https://github.com/Madhav-Sai/scanrunner/releases/latest).
-Extract the whole ZIP, open its folder, then run:
-
-```bash
-python3 install.py --user
-scanrunner guide
-```
-
-On Windows, use `python install.py --user` and open a new PowerShell window.
-Keep the extracted folder: the Unix launcher points to it. Nmap is required for
-Nmap scans; optional tools are installed separately. Release assets include a
-`SHA256SUMS.txt` file for checking the ZIP's integrity.
-
-The release ZIP contains the application and user documentation. The GitHub
-source tree also includes development tests, CI and controlled lab tooling.
-Supporting application code lives in `scanrunner_lib/`; older documentation is
-under `docs/archive/`. See [documentation](docs/README.md) for a short index.
-
-## Start with one complete assessment
-
-Want to check reachability first? The optional [PingMe integration](docs/assessment-workflows.md#pingme-host-discovery)
-provides `scanrunner discover`. It keeps no-response and probe-error results
-separate and prints a preview command for a later scan.
-
-```bash
-scanrunner guide
-scanrunner --whats-new
-```
-
-The guide walks through preparing scope, previewing a baseline scan, running it,
-reading inventory and exporting an HTML report. It prints copyable commands.
-Use your authorized IP with `scanrunner guide --target YOUR_IP`.
-
-```bash
-scanrunner guide --task reports
-scanrunner guide --task findings
-scanrunner guide --task optional-tools
-scanrunner help report
-```
-
-Every assessment command's help explains its purpose, prerequisites, examples and
-next step. [Assessment workflows](docs/assessment-workflows.md) covers optional
-tools, XLSX, private sharing, scheduling and other local features.
-
 ---
 
 ## Overview
@@ -333,7 +287,7 @@ python3 scanrunner.py -f alive.txt -o results -sV -T4
 #### Aggressive Assessment
 
 ```bash
-python3 scanrunner.py -f alive.txt -o results -sV -vv
+python3 scanrunner.py -f alive.txt -o results -sV -A -vv
 ```
 
 #### Full Port Scan
@@ -342,17 +296,69 @@ python3 scanrunner.py -f alive.txt -o results -sV -vv
 python3 scanrunner.py -f alive.txt -o results -sS -p- -T4
 ```
 
-#### TLS Configuration Observations
+#### Vulnerability Discovery
 
 ```bash
-python3 scanrunner.py -f alive.txt -o results --script ssl-enum-ciphers -sV --allow-intrusive --authorization-note AUTH_REF
+python3 scanrunner.py -f alive.txt -o results --script vuln -sV
 ```
 
 #### Active Directory Assessment
 
 ```bash
-python3 scanrunner.py -f dc.txt -o ad-assessment -sV -O -T4
+python3 scanrunner.py -f dc.txt -o ad-assessment -sV -A -T4
 ```
+
+Any Nmap flag is passed straight to Nmap (`-A`, `-sC`, `-O`, `--script ...`,
+`--script-args ...`). The only flags scanrunner handles itself are the output
+flags (`-oN/-oX/...`) and target input (`-iL`, `-iR`), see
+[Nmap Flags scanrunner Handles Itself](#nmap-flags-scanrunner-handles-itself).
+
+### Keys during a scan
+
+These work on Linux, macOS and Windows while a single host is being scanned:
+
+| Key | Action |
+|---|---|
+| `Space` | Show target, elapsed time and open ports found so far |
+| `Ctrl+X` | Skip the current host (logged as skipped, the run continues) |
+| `Ctrl+C` | Stop the whole run (`--resume` continues it later) |
+
+---
+
+## PingMe Host Discovery
+
+[PingMe](https://github.com/Madhav-Sai/PingMe) finds live hosts fast. Add
+`--pingme` and scanrunner sweeps every target with PingMe first, then runs Nmap
+(or NXC) **only on the live hosts**. A CIDR is replaced by its live hosts, so a
+`/24` turns into one Nmap scan per live IP instead of one long subnet scan.
+
+```bash
+# Sweep a subnet, then service-scan only the hosts that answered
+python3 scanrunner.py -i 10.0.0.0/24 --pingme -sV
+
+# Hosts that block ICMP: also count an open TCP port as "alive"
+python3 scanrunner.py -f targets.txt --pingme --pingme-args "--tcp-ports 22,445,3389" -A
+
+# NetExec against live hosts only
+python3 scanrunner.py -f targets.txt --pingme -nxc smb
+
+# Just sweep and save the live list (results/pingme/live.txt)
+python3 scanrunner.py -f targets.txt --pingme-only
+```
+
+scanrunner looks for PingMe in this order: `--pingme-path`, the `PINGME_PATH`
+environment variable, `pingme` on `PATH`, then a `PingMe` folder next to
+scanrunner or in your home folder.
+
+| Result | Where |
+|---|---|
+| PingMe JSON results and `live.txt` | `results/pingme/` |
+| Targets with no response | `not-pingip.txt` (counted as Down/NoPing in the summary) |
+| Hosts whose probe errored | Scanned anyway — unknown is not the same as down |
+
+`--pingme-args` takes any PingMe option except ones that never finish or switch
+PingMe to another job (`--watch`, `--serve`, `--wol`, `--discover6`, `--sub`,
+`--reverse`, `--ping-tool ask`). PingMe's history is kept in `results/pingme/data`.
 
 ---
 
@@ -602,6 +608,7 @@ arguments are fixed.
 | `-oN` / `-oX` / `-oG` / `-oA` / `-oS` | refused — scanrunner writes per-target `.txt` and `.xml` itself; use `-o DIR` |
 | `-iR N` | refused — random targets can't be scope-checked or tracked |
 | `-f` | always scanrunner's target file (Nmap's fragmentation flag is not available) |
+| `--host-timeout` | if you don't give one, scanrunner adds `--host-timeout 15m` so one hung host can't block the run. Give your own (e.g. `--host-timeout 60m` for slow `-p- -A` scans) or `--host-timeout 0` for no limit |
 
 In NXC mode, `-o KEY=VALUE ...` is passed to NetExec as module options, while
 `-o DIR` is still the output folder.
@@ -631,24 +638,14 @@ python3 scanrunner.py --list-templates
 |---|---|---|
 | `quick` | `-sV -T4 --top-ports 100` | Fast service check |
 | `full` | `-sS -sV -O -T4 -p-` | Thorough TCP scan |
-| `full-fast` | `-sV -O -Pn -T4 -p-` | Full TCP service/OS scan under configured rate limits |
-| `web` | `-sV -p 80,443,8000,8080,8443` | Web service/version inventory |
-| `web-enum` | `-sV -p 80,443,8000,8080,8443` | Compatibility alias for web service inventory |
-| `ssl-ciphers` | `-sV --script ssl-enum-ciphers` | TLS cipher observations |
-| `smb-audit` | `-sV --script smb-os-discovery,smb-protocols,smb-security-mode,smb2-security-mode` | SMB observations requiring explicit anonymous-session authorization |
-| `rdp-audit` | `-sV --script rdp-enum-encryption,rdp-ntlm-info` | RDP observations |
-| `safe-baseline` | `-sT --top-ports 100 --version-light` | TCP connect inventory |
-| `ssh-audit` | `-sV -p 22 --script ssh2-enum-algos` | SSH algorithm offers |
-| `dns-audit` | `-sU -p 53 -sV` | DNS service inventory |
-| `ad-discovery` | `-sT -p 53,88,135,139,389,445,464,636,3268,3269` | AD-associated port inventory |
-| `tls-audit` | `-sV -p 443,8443 --script ssl-cert,ssl-enum-ciphers` | TLS certificate and cipher observations |
+| `full-fast` | `-sV -A -Pn --min-rate 200 -p-` | Fast full-port scan |
+| `web` | `-sV -p 80,443,8080,8443 --script http-title,http-headers` | Web identification |
+| `web-enum` | `-sV -p 80,443,8080,8443 --script http-title,http-headers,http-enum` | Web enumeration |
+| `ssl-ciphers` | `-sV -p 443,8443,9443 --script ssl-enum-ciphers` | TLS cipher review |
+| `smb-audit` | `-sV -p 139,445 --script smb-os-discovery,smb-protocols,smb-security-mode` | SMB hardening review |
+| `rdp-audit` | `-sV -p 3389 --script rdp-enum-encryption,rdp-ntlm-info` | RDP hardening review |
 | `udp` | `-sU -sV --top-ports 100` | Common UDP services |
-
-The broad `vuln` preset is retired because its script category includes unreviewed checks.
-Choose a supported profile or explicitly select approved scripts. `full-fast` no longer
-expands `-A` or sets a minimum traffic rate. `web` and `web-enum` provide service inventory
-without HTTP NSE enumeration. These compatibility changes are also displayed in profile
-notes. Only `smb-audit` requires both `--allow-intrusive` and `--authorization-note`.
+| `vuln` | `-sV --script vuln` | Nmap vulnerability scripts |
 
 ```bash
 # Equivalent aliases; use whichever reads best in your workflow.
@@ -657,7 +654,7 @@ python3 scanrunner.py -f targets.txt --preset full-fast --host-timeout 10m
 python3 scanrunner.py -f targets.txt --template full-fast -vv
 
 # No preset: pass raw Nmap arguments as before.
-python3 scanrunner.py -f targets.txt -sV -O -Pn -p- --scan-rate 100
+python3 scanrunner.py -f targets.txt -sV -A -Pn --min-rate 200 -p-
 ```
 
 ### Non-interactive and Parallel Scans
@@ -705,13 +702,13 @@ the complete output plus terminal, CSV, and JSON tables.
 
 ```bash
 # General SMB inventory table; any normal NXC options are passed through.
-python3 scanrunner.py -f targets.txt -nxc smb --allow-intrusive --authorization-note AUTH_REF --timeout 5
+python3 scanrunner.py -f targets.txt -nxc smb --timeout 5
 
 # Display only the SMB facts needed for a hardening review.
-python3 scanrunner.py -f targets.txt -nxc smb --allow-intrusive --authorization-note AUTH_REF --nxc-query os,hostname,smbv1,smb-signing
+python3 scanrunner.py -f targets.txt -nxc smb --nxc-query os,hostname,smbv1,smb-signing
 
 # Test whether anonymous SMB authentication succeeds. Empty credentials are added automatically.
-python3 scanrunner.py -f targets.txt -nxc smb --allow-intrusive --authorization-note AUTH_REF --nxc-query null-auth
+python3 scanrunner.py -f targets.txt -nxc smb --nxc-query null-auth
 
 # Show only RDP Network Level Authentication status.
 python3 scanrunner.py -f targets.txt -nxc rdp --nxc-query rdp-nla
@@ -742,7 +739,6 @@ sends no network traffic. The one exception is a single real-Nmap check against
 a listener on 127.0.0.1, which is skipped when Nmap isn't installed:
 
 ```bash
-python3 -m pip install -r requirements-optional.txt
 python3 -m unittest discover -s tests -v
 ```
 
@@ -760,19 +756,19 @@ python3 -m unittest discover -s tests -v
 ### Full Enumeration
 
 ```bash
--sS -sV -O -T4
+-sS -sV -O -A -T4
 ```
 
-### TLS Configuration Observations
+### Vulnerability Discovery
 
 ```bash
---script ssl-enum-ciphers -sV
+--script vuln -sV
 ```
 
 ### Web Assessment
 
 ```bash
--sV -p 80,443,8000,8080,8443
+-sV -p 80,443,8080,8443 --script http-title,http-headers
 ```
 
 ### Full Port Enumeration
@@ -788,7 +784,7 @@ python3 -m unittest discover -s tests -v
 ## Example Execution
 
 ```bash
-python3 scanrunner.py -f alive.txt -o client-network -sV -O -T4
+python3 scanrunner.py -f alive.txt -o client-network -sV -A -T4
 ```
 
 Output:
@@ -806,7 +802,7 @@ Target: 172.16.5.120
 [+] Host is alive
 
 [+] Command:
-nmap --stats-every 15s -sV -O -T4 -oN client-network/172.16.5.120.txt -- 172.16.5.120
+nmap --stats-every 15s -sV -A -T4 -oN client-network/172.16.5.120.txt -- 172.16.5.120
 ```
 
 ### Hosts Blocking Ping
@@ -825,7 +821,7 @@ Use `-ok` (or `--skip-no-ping`) when you want scanrunner to keep the normal
 wrapper ping check but automatically skip targets that do not respond.
 
 ```bash
-scanrunner -f file.txt -o nmap -ok -sV
+scanrunner -f file.txt -o nmap -ok -sV -A
 ```
 
 Behavior:
@@ -903,26 +899,7 @@ Built for Security Professionals
 
 ## Shell Tab Completion
 
-The installer provides completion for Bash, Zsh, Fish and PowerShell.
-The CLI can also generate or install Bash and Zsh scripts directly.
-Completion includes the assessment commands, `guide`, `help`, `--whats-new`,
-scan profiles and the existing scan options. It does not suggest live hostnames
-or dynamically look up finding IDs.
-
-After upgrading, regenerate completion so your shell sees the new commands:
-
-```bash
-# Bash or Zsh: select your shell
-scanrunner --install-completion bash
-scanrunner --install-completion zsh
-
-# Fish: rerun the installer from the updated checkout
-python3 install.py --user --shell fish
-```
-
-For PowerShell, run `python install.py --user --shell powershell` from the
-updated checkout. Open a new shell after installation. These installer commands
-also refresh the installed application; they do not run a scan.
+scanrunner can generate and install completion for Zsh and Bash.
 
 ### Zsh
 
@@ -967,175 +944,3 @@ conflicts, scope checks, target normalization, report classification (complete,
 down, timeout, unresolved, interrupted), per-host XML parsing, inventory
 merging, outcome reconciliation, resume rules, NXC table parsing, and end-to-end
 serial, parallel, tab, fatal-error, retry, `--status` and `--diff` runs.
-
-Offline workflow tests run synthetic scanners through Python on Windows and POSIX;
-they block child DNS, shell launches and real scanner executables. A controlled
-localhost Nmap integration is separate and requires both Nmap and the explicit
-`SCANRUNNER_TEST_REAL_NMAP=1` environment variable. Leave it unset for offline tests.
-See `tests/fixtures/README.md` for fixture provenance. The supported control checks and their limitations are described below.
-
-Port diffs report removed entries as **no longer observed open**. Scan coverage
-has not been proved equivalent, so this is not proof of closure or remediation.
-For JSON compatibility, the `closed` key remains; `closed_interpretation` and
-`coverage_comparability` explain its limits.
-
-## Scope and impact preview
-
-Use `scanrunner -i 192.0.2.10 --dry-run --json -sV` to inspect planned commands,
-impact, privileges and output paths without DNS queries or scanner processes.
-Hostname addresses require validation at execution. Use `--scope-file scope.txt`
-for an engagement allowlist. Empty scopes and mixed authorized/unauthorized DNS
-answers are refused. Without a scope file, explicit requested targets form the
-allowlist. DNS answers are checked again and pinned before scanner execution.
-Exclusion overlap rejects the requested range. Split ranges around exclusions.
-
-Scanner arguments and NSE scripts must be reviewed for scope preservation.
-Unreviewed scripts and NetExec modules are refused. Credential operations require
-`--allow-intrusive --authorization-note "Engagement authorization reference"`.
-The retired `vuln` preset is rejected. Supported profiles are listed by `--list-templates`,
-including authorization requirements and changes to legacy behavior.
-
-## Durable runs and evidence
-
-Each scanner attempt preserves raw stdout, stderr, XML, command metadata and a
-SHA-256 manifest under `OUTPUT/.scanrunner/runs/RUN_ID/JOB_ID`. SQLite metadata
-tracks jobs, scope snapshots and completion. The private directory restricts
-access to the owner on Unix and owner/SYSTEM/administrators on Windows. Existing
-`<target>.txt`/`.xml` paths provide current report views. Earlier legacy bytes are
-retained with the attempt before those views change. Back up `.scanrunner` with
-reports to retain complete provenance.
-
-`scanrunner --history results --json` reviews runs and outcomes.
-`scanrunner --verify-evidence results --json` checks artifact integrity and returns
-a failure when evidence is missing, corrupt or unfinished.
-
-Resume requires matching tool/version, binary hash, target, scope, profile,
-arguments and execution policy plus valid associated XML and artifact hashes.
-Legacy logs and manual acknowledgements alone cannot mark a new job complete.
-
-Processes default to a 600-second timeout and retries are bounded to five.
-`--global-concurrency` defaults to 4 and `--subnet-concurrency` to 2. These ceilings
-apply to workers sharing an output directory. `--scan-rate` defaults to 100 Nmap
-discovery/port-scan packets per second, divided across global slots. Raw rate
-options such as `--min-rate=2000` automatically set a sufficient shared budget,
-so no extra ScanRunner flags are needed. If you explicitly set `--scan-rate`,
-raw rate options must fit that budget. OS, version and NSE traffic is outside this budget.
-Use `--dry-run` to review the effective arguments and impact.
-
-Run `python scripts/check_quality.py` for offline syntax, safety lint and installer
-archive checks. The GitHub Actions workflow runs those checks and the offline
-regression suite on Windows, Linux and macOS.
-
-## Assessment workflow in 1.5
-
-Install from the complete repository and retain the complete `scanrunner_lib/` folder
-beside `scanrunner.py`. The installer validates and copies the complete
-application payload on Windows.
-Unix launchers continue to use the repository source directory. Existing raw scan
-artifacts and legacy CSV/JSON/HTML views remain available.
-
-```bash
-python3 scanrunner.py engagement create --name lab --scope-file scope.txt -o results
-python3 scanrunner.py import saved.xml --engagement lab --scope-file scope.txt --target 192.0.2.0/24 -o results
-python3 scanrunner.py inventory --engagement lab --port 445 --transport tcp -o results
-python3 scanrunner.py observations --engagement lab -o results
-python3 scanrunner.py findings create --engagement lab --observation OBSERVATION_ID -o results
-python3 scanrunner.py findings list --engagement lab -o results
-```
-
-Import stores a private evidence copy, SHA-256, parser identity and original scanner
-metadata. It performs no scanner execution or DNS lookup. A registered engagement's
-scope and exclusions also constrain imports and subsequent scans. Inventory retains
-exact TCP/UDP states, OS guesses and confidence, source hostnames and timestamps.
-Unknown endpoint associations remain explicit. `asset --metadata metadata.json`
-updates assessor-owned owner, site, environment, criticality, tags, notes, subnet or
-customer fields. `asset ASSET_ID --add-address ADDRESS` records an analyst-approved
-address alias while preserving asset identity.
-
-Supported configuration rules currently interpret structured `smb2-security-mode`
-and `smb-protocols` evidence on an associated open TCP endpoint. They produce
-candidate observations with explicit prerequisites and rule versions. Their output
-semantics follow the [SMB signing script documentation](https://nmap.org/nsedoc/scripts/smb2-security-mode.html)
-and [SMB dialect script documentation](https://nmap.org/nsedoc/scripts/smb-protocols.html).
-Host-script evidence can use a sole eligible SMB endpoint under the documented
-[Nmap SMB library selection](https://svn.nmap.org/nmap/nselib/smb.lua). The observation
-records this derivation and its source port field. Multiple eligible endpoints,
-custom script arguments, failed checks and conflicting results require further
-verification. Additional contracts cover RDP negotiation, TLS protocol/cipher evidence,
-certificate validity, SSH algorithm offers, explicit anonymous FTP authentication and
-controlled DNS recursion. Open management-associated ports produce exposure observations.
-See [assessment workflows](docs/assessment-workflows.md) for supported evidence,
-optional scanners, workbook exports, private sharing, scheduling and local operations.
-
-Use `findings review --help` for supported decisions. Confirmation requires the
-reviewer's identity and rationale, an explicit approval of prerequisites and impact,
-positive source evidence, a known scanner version and observation time, and reviewed
-description, impact, remediation and references. Imported origin needs an explicit
-trust decision. For example, `reviewed-details.json` can contain these fields with
-the assessor's actual conclusions. Missing fields remain `Not determined`.
-
-```bash
-python3 scanrunner.py findings review --engagement lab --finding FINDING_ID --status Confirmed --reviewer ANALYST --rationale REVIEW_REASON --details reviewed-details.json --approve-preconditions-and-impact --trust-import-origin -o results
-python3 scanrunner.py retest FINDING_ID --engagement lab --run NEW_RUN_ID -o results
-python3 scanrunner.py findings history --engagement lab --finding FINDING_ID -o results
-python3 scanrunner.py report --engagement lab --view executive -o results
-python3 scanrunner.py report --engagement lab --format html --destination technical.html -o results
-python3 scanrunner.py findings export --engagement lab --destination final.json -o results
-```
-
-Review and retest events preserve history. Comparable negative evidence yields
-`Potentially Remediated`. `retest --approve --reviewer ... --rationale ...` can record
-`Remediated (Verified)` after the checks pass. Imported retest origin also requires
-`--trust-import-origin`. Missing, older, filtered, failed or different-method evidence
-cannot establish verified remediation. Final finding exports include confirmed
-records by default and revalidate their raw evidence and approval hashes. Use
-`--include-candidates` explicitly for draft exports. Reports retain coverage limits
-and count candidate and confirmed statuses separately. JSON, CSV and HTML exports
-redact recognized secrets, escape content and neutralize spreadsheet formulas.
-
-## Measuring checks against labeled data
-
-```bash
-python3 scanrunner.py benchmark tests/fixtures/detection-benchmark/dataset.json --destination synthetic-score.json
-```
-
-That dataset contains six invented offline cases, including deliberately
-unassessable cases. Its metrics describe those fixtures. For a controlled-lab or
-verified-output dataset, supply independently verified positive/negative labels,
-reviewer, method, timestamp, proof artifact and SHA-256 for each case. Each case
-identifies an exact scanner artifact hash, IP, port, transport and check ID. The
-benchmark invokes the production normalization and rule evaluator without scanning.
-Duplicate cases are refused. Errors and abstentions remain in the counts, operational
-recall includes positive abstentions, and reports include per-check denominators,
-coverage and Wilson intervals. Field accuracy is pending a representative labeled
-dataset. End-to-end scanner performance additionally requires executing the pinned
-scanner against the authorized lab and independently checking its ground truth.
-
-## NetExec authorization and assessment coverage
-
-Every `-nxc smb` invocation requires `--allow-intrusive --authorization-note AUTH_REF`.
-Replace `AUTH_REF` with the actual authorization reference. NetExec SMB host
-enumeration performs a null-login probe and can probe Guest, including when no
-credentials were supplied. The preview describes those effects. The underlying
-behavior is visible in [NetExec SMB enumeration](https://github.com/Pennyw0rth/NetExec/blob/main/nxc/protocols/smb.py).
-
-Completion requires evidence for each requested address and focused field on the
-selected protocol/port. Sparse CIDR results and unresolved requested facts retain
-`PARTIAL` or `INCONCLUSIVE` coverage. The CLI exits 1 for incomplete coverage while
-preserving the raw evidence and CSV/JSON facts. `coverage.json` in each job directory
-records per-target outcomes, requested queries and port. Capacity reservations use
-the selected targets within an engagement's authorization scope.
-
-SMB signing is labeled as a signing requirement. An explicit blank-login
-`STATUS_LOGON_FAILURE` is recorded as `Rejected`. Access denial remains
-`Inconclusive`. Hash credentials prevent anonymous-credential injection, and generic
-progress messages leave the OS field unknown. SMB `all` queries require the same
-authorization and request an explicit blank login only when credentials are absent.
-RDP `all` queries cover OS, hostname and NLA fields. Unsupported protocol/query
-combinations fail before scanner execution. `--port` accepts an integer from 1 to
-65535, and completion evidence must match the selected endpoint.
-
-Evidence parser revision 4 invalidates earlier completion fingerprints. Version
-compatibility remains important because the upstream SMB implementation documents
-earlier SMB 3.1.1 signing interpretation pitfalls. Independent lab measurements must
-pin the scanner version and verify the actual server policy.

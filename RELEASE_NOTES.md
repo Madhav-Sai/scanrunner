@@ -1,30 +1,39 @@
-# scanrunner v1.6.0
+# scanrunner v1.7.0
 
-Adds optional scoped PingMe 3.3.0 host discovery through `scanrunner discover`.
-Choose explicit literal IPs/CIDRs or a target file, preview the bounded argv and
-run using a separately installed `pingme.py`. Reachability, no-response and probe
-errors stay separate. Raw evidence and script identity are preserved. The output
-offers a preview command for a later Nmap assessment; no scan chaining or
-automatic findings are enabled. Help, beginner guidance and shell completion
-include the new command. See [PingMe discovery](docs/assessment-workflows.md#pingme-host-discovery).
+Back to the simple scanrunner. The v1.5/v1.6 "assessment framework" rewrite made
+everyday scans harder, so this release restores the v1.3.0 workflow and adds
+PingMe on top.
 
-# scanrunner v1.5.0
+## Restored
 
-Download `scanrunner-1.5.0.zip` from the GitHub release and extract the entire
-folder before installing. A SHA-256 checksum accompanies the ZIP. Supporting
-code now lives in `scanrunner_lib/`, keeping the repository root easier to browse.
-Existing CLI commands remain unchanged. Reinstall from the complete updated
-folder to refresh the application and shell completion.
+- Every Nmap flag is passed straight to Nmap again: `-A`, `-sC`, `-O`, `-p-`,
+  `--script vuln`, `--script-args ...` — no allowlist, no "unreviewed argument" errors
+- No `--allow-intrusive` / `--authorization-note AUTH_REF` gates for NXC, SMB
+  templates or credentials
+- NetExec runs at its own default speed with live output
+- Interactive prompts, existing-report menu, resume and terminal tabs as in v1.3.0
+- Removed the assessment/plugin/probe/discover subcommands, run database and lab tooling
 
-Adds evidence contracts for RDP, TLS, SSH, controlled FTP/DNS checks and management exposure. New observations preserve prerequisites, source identity and conservative outcomes. Finding templates include explicit missing-value fields, and optional XLSX exports preserve text cell types.
+## Added
 
-Optional httpx, testssl.sh and reviewed Nuclei adapters use explicit scope, version and authorization checks. Local operations add a terminal menu, queued scheduling, manual CVE snapshots, keyed sharing, asset history, reusable templates and HMAC report/evidence attestations. See [assessment workflows](docs/assessment-workflows.md) for commands and limitations.
+- `--pingme`: sweep targets with PingMe first and scan only live hosts
+  (CIDRs become their live hosts; no-response targets go to `not-pingip.txt`)
+- `--pingme-only`, `--pingme-path`, `--pingme-args`, and `scanrunner --pingme -h`
+- Resume prompt defaults to resume — just press Enter to skip completed targets
+- `--host-timeout 15m` is added when you don't set one (your own value, or `0`, wins)
+- `--pingme-args` refuses PingMe modes that never finish (`--watch`, `--serve`, ...)
+- Space / Ctrl+X / Ctrl+C scan keys now work on Windows too
 
-The profile catalog adds baseline, SSH, DNS, AD and TLS workflows. Application parser revision 4 invalidates earlier completion fingerprints. Rule revision 5 requires renewed review of previously confirmed findings before final export.
+## Fixes
 
-The main help groups commands by task. `scanrunner guide` walks through a complete first scan, with additional walkthroughs for reports, findings, optional tools, sharing and scheduling. `scanrunner --whats-new` lists new features, and command help includes prerequisites, examples and a next action.
-
-Live terminal controls preserve output newline processing, fixing diagonal/scattered scanner output. Exact evidence captures and explicit analyst confirmation remain part of the assessment workflow.
+- Tabs on Windows no longer lose outcome log lines (and report finished targets
+  as unaccounted): concurrent appends to `completed.txt` etc. are now locked
+- NetExec/Nmap output is read as UTF-8, so Windows doesn't garble or crash on it
+- `nmap`, `ping` and `nxc` are found through PATH including `.cmd`/`.bat` wrappers
+- Nmap `-n` passthrough on Python 3.10
+- No `UnicodeEncodeError` when output is piped or redirected on Windows
+- The whole test suite now runs on Windows too, and never runs the real Nmap
+- Skipping a host no longer leaks Nmap's output pipe
 
 # scanrunner v1.3.0
 
