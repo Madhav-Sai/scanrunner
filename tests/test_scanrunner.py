@@ -360,6 +360,31 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(cmd[-2:], ["--", "10.0.0.1"])
 
 
+INSTALL = Path(__file__).resolve().parents[1] / "install.py"
+install_spec = importlib.util.spec_from_file_location("scanrunner_install", INSTALL)
+installer = importlib.util.module_from_spec(install_spec)
+install_spec.loader.exec_module(installer)
+
+
+class PowerShellCompletionInstallTests(unittest.TestCase):
+    """Completion must go in the profile PowerShell 5.1 really loads (OneDrive Documents)."""
+
+    def test_uses_the_profile_powershell_reports(self):
+        reported = r"C:\Users\u\OneDrive - Org\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1"
+        ran = subprocess.CompletedProcess([], 0, stdout=reported + "\r\nUndefined\r\n")
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(installer.Path, "home", return_value=Path(tmp)), \
+                mock.patch.object(installer.shutil, "which",
+                                  side_effect=lambda exe: "powershell.exe" if exe == "powershell" else None), \
+                mock.patch.object(installer.subprocess, "run", return_value=ran), \
+                mock.patch.object(installer, "replace_managed_block") as write_profile, \
+                mock.patch.object(installer, "warn") as warn, \
+                mock.patch.object(installer, "success"):
+            installer.install_completion("powershell", "windows")
+        self.assertEqual([call.args[0] for call in write_profile.call_args_list], [Path(reported)])
+        self.assertIn("Set-ExecutionPolicy", warn.call_args.args[0])   # Undefined = Restricted
+
+
 class WindowsPingTests(unittest.TestCase):
     """Windows ping exits 0 on 'Destination ... unreachable'; only replies count."""
 

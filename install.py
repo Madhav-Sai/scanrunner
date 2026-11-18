@@ -257,6 +257,40 @@ def replace_managed_block(path: Path, content: str) -> None:
     path.write_text(updated, encoding="utf-8")
 
 
+def powershell_profiles() -> tuple[list[Path], bool]:
+    """Ask each installed PowerShell for its profile path.
+
+    Windows PowerShell 5.1 and PowerShell 7 use different profile folders, and
+    Documents is often redirected (OneDrive), so the path can't be guessed.
+    Also report whether the execution policy stops profiles from running.
+    """
+    profiles: list[Path] = []
+    blocked = False
+    # The Process scope is skipped: it comes from whoever started this installer.
+    script = ("$PROFILE.CurrentUserCurrentHost; "
+              "$p = 'Undefined'; foreach ($s in 'MachinePolicy','UserPolicy','CurrentUser','LocalMachine') "
+              "{ $v = [string](Get-ExecutionPolicy -Scope $s); if ($v -ne 'Undefined') { $p = $v; break } }; $p")
+    for exe in ("powershell", "pwsh"):
+        path = shutil.which(exe)
+        if not path:
+            continue
+        try:
+            out = subprocess.run([path, "-NoProfile", "-NonInteractive", "-Command", script],
+                                 capture_output=True, text=True, timeout=60).stdout.split("\n")
+        except (OSError, subprocess.SubprocessError):
+            continue
+        lines = [line.strip() for line in out if line.strip()]
+        if len(lines) < 2:
+            continue
+        profile = Path(lines[0])
+        if profile not in profiles:
+            profiles.append(profile)
+        # Undefined everywhere means Restricted on Windows clients.
+        if lines[-1] in ("Undefined", "Restricted", "AllSigned"):
+            blocked = True
+    return profiles, blocked
+
+
 def install_completion(shell: str, system: str) -> None:
     home = Path.home()
     if shell == "zsh":
@@ -289,9 +323,14 @@ def install_completion(shell: str, system: str) -> None:
             f"  @({words}) | Where-Object {{ $_ -like \"$wordToComplete*\" }} | "
             "ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }\n"
             "}\n", encoding="utf-8")
-        profile = home / "Documents/PowerShell/Microsoft.PowerShell_profile.ps1"
-        replace_managed_block(profile, f'. "{completion_file}"')
+        profiles, blocked = powershell_profiles()
+        for profile in profiles or [home / "Documents/PowerShell/Microsoft.PowerShell_profile.ps1"]:
+            replace_managed_block(profile, f'. "{completion_file}"')
         success(f"Installed PowerShell completion: {completion_file}")
+        if blocked:
+            warn("PowerShell's execution policy blocks profile scripts, so tab completion "
+                 "won't load. To allow it, run once:\n"
+                 "    Set-ExecutionPolicy -Scope CurrentUser RemoteSigned")
     else:
         warn(f"Automatic completion is not available for shell: {shell}")
 
