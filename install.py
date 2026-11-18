@@ -31,6 +31,7 @@ OPTIONS = [
     "--scope-file", "--retries", "--parallel", "-o", "--output",
     "--metadata-csv", "--html-report", "--list-templates", "--help-all",
     "--nmap", "--reports", "--tabs", "--no-auto-tabs", "--status", "--diff",
+    "--pingme", "--pingme-only", "--pingme-path", "--pingme-args",
     "-v", "--version",
 ]
 

@@ -384,6 +384,13 @@ class PowerShellCompletionInstallTests(unittest.TestCase):
         self.assertEqual([call.args[0] for call in write_profile.call_args_list], [Path(reported)])
         self.assertIn("Set-ExecutionPolicy", warn.call_args.args[0])   # Undefined = Restricted
 
+    def test_installer_completes_every_scanrunner_option(self):
+        import re
+        source = SCRIPT.read_text(encoding="utf-8")
+        declared = {name for pair in re.findall(
+            r'add_argument\(\s*"(--?[\w-]+)"(?:\s*,\s*"(--?[\w-]+)")?', source) for name in pair if name}
+        self.assertEqual(declared - set(installer.OPTIONS), set())
+
 
 class WindowsPingTests(unittest.TestCase):
     """Windows ping exits 0 on 'Destination ... unreachable'; only replies count."""
