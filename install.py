@@ -15,15 +15,12 @@ from pathlib import Path
 
 APP = "scanrunner"
 SCRIPT = "scanrunner.py"
-MODULES = ("scanrunner_assessment.py", "scanrunner_findings.py", "scanrunner_benchmark.py", "scanrunner_exports.py", "scanrunner_rules.py", "scanrunner_probes.py", "scanrunner_plugins.py", "scanrunner_operations.py", "scanrunner_workspace.py", "scanrunner_help.py", "scanrunner_discovery.py")
-COMPANIONS = tuple("scanrunner_lib/" + name for name in ("__init__.py", *MODULES))
 MARKER_START = "# >>> scanrunner completion >>>"
 MARKER_END = "# <<< scanrunner completion <<<"
 
 PROFILES = [
     "quick", "full", "full-fast", "web", "web-enum", "ssl-ciphers",
-    "smb-audit", "rdp-audit", "udp",
-    "safe-baseline", "ssh-audit", "dns-audit", "ad-discovery", "tls-audit",
+    "smb-audit", "rdp-audit", "udp", "vuln",
 ]
 NXC_PROTOCOLS = ["smb", "rdp", "ldap", "winrm", "ssh", "ftp", "mssql", "wmi", "vnc", "nfs"]
 NXC_QUERIES = ["os", "hostname", "smbv1", "smb-signing", "null-auth", "rdp-nla", "all"]
@@ -36,14 +33,6 @@ OPTIONS = [
     "--nmap", "--reports", "--tabs", "--no-auto-tabs", "--status", "--diff",
     "-v", "--version",
 ]
-OPTIONS.extend([
-    "--pingme-script", "--tcp-ports",
-    "--dry-run", "--json", "--engagement", "--process-timeout", "--global-concurrency",
-    "--subnet-concurrency", "--scan-rate", "--allow-intrusive", "--authorization-note",
-    "--history", "--verify-evidence", "--scope-snapshot",
-    "--whats-new", "guide", "help", "discover", "engagement", "inventory", "observations", "findings", "report", "retest", "import", "asset",
-    "probe", "plugin", "rules", "trends", "share", "attest", "schedule", "advisory", "template", "tui", "benchmark",
-])
 
 
 def info(message: str) -> None:
@@ -67,16 +56,7 @@ def project_script() -> Path:
     path = Path(__file__).resolve().parent / SCRIPT
     if not path.is_file():
         fail(f"{SCRIPT} was not found beside install.py")
-    payload_sources(path)
     return path
-
-
-def payload_sources(source: Path) -> list[Path]:
-    companions = [source.parent / name for name in COMPANIONS]
-    missing = [path.name for path in companions if not path.is_file()]
-    if missing:
-        fail("Incomplete application payload. Missing: " + ", ".join(missing))
-    return companions
 
 
 def detect_os() -> str:
@@ -166,16 +146,11 @@ def add_windows_user_path(directory: Path) -> None:
 
 
 def install_windows_launcher(source: Path) -> Path:
-    companions = payload_sources(source)
     destination_dir = windows_scripts_dir()
     destination_dir.mkdir(parents=True, exist_ok=True)
     installed_script = destination_dir / SCRIPT
     launcher = destination_dir / "scanrunner.cmd"
     shutil.copy2(source, installed_script)
-    for companion in companions:
-        installed_module = destination_dir / companion.relative_to(source.parent)
-        installed_module.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(companion, installed_module)
     launcher.write_text(f'@echo off\r\n"{sys.executable}" "{installed_script}" %*\r\n', encoding="utf-8")
     add_windows_user_path(destination_dir)
     success(f"Installed launcher: {launcher}")
@@ -216,7 +191,7 @@ _scanrunner() {{
     '--status[summarise an output folder]:directory:_directories' \\
     '--diff[compare two output folders]:old directory:_directories' \\
     '(-h --help)'{{-h,--help}}'[show help]' \\
-    '*:Nmap argument or target:({options})'
+    '*:Nmap argument or target:'
 }}
 
 _scanrunner "$@"
@@ -233,7 +208,7 @@ def bash_completion() -> str:
         --profile|--template|--preset) COMPREPLY=( $(compgen -W "{' '.join(PROFILES)}" -- "$cur") ); return ;;
         -nxc|--nxc) COMPREPLY=( $(compgen -W "{' '.join(NXC_PROTOCOLS)}" -- "$cur") ); return ;;
         --nxc-query) COMPREPLY=( $(compgen -W "{' '.join(NXC_QUERIES)}" -- "$cur") ); return ;;
-        -f|--file|--exclude-file|--scope-file|--metadata-csv|--pingme-script) COMPREPLY=( $(compgen -f -- "$cur") ); return ;;
+        -f|--file|--exclude-file|--scope-file|--metadata-csv) COMPREPLY=( $(compgen -f -- "$cur") ); return ;;
         -o|--output|--status|--diff) COMPREPLY=( $(compgen -d -- "$cur") ); return ;;
     esac
     COMPREPLY=( $(compgen -W "{' '.join(OPTIONS)}" -- "$cur") )
@@ -247,8 +222,6 @@ def fish_completion() -> str:
     for option in OPTIONS:
         if option.startswith("--"):
             lines.append(f"complete -c scanrunner -l {option[2:]}")
-        elif not option.startswith("-"):
-            lines.append(f"complete -c scanrunner -n '__fish_use_subcommand' -a '{option}'")
         elif option.startswith("-") and len(option) == 2:
             lines.append(f"complete -c scanrunner -s {option[1:]}")
     lines.extend([

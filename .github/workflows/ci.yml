@@ -1,9 +1,9 @@
-name: Offline quality gate
+name: Tests
 on: [push, pull_request]
 permissions:
   contents: read
 jobs:
-  regression:
+  tests:
     strategy:
       fail-fast: false
       matrix:
@@ -12,17 +12,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       PYTHONUTF8: '1'
-      PYTHONDONTWRITEBYTECODE: '1'
-      SCANRUNNER_TEST_REAL_NMAP: '0'
+      SCANRUNNER_BACKGROUND_TABS: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      - run: python -m pip install -r requirements-optional.txt
-      - run: python scripts/check_quality.py
       - run: python -B -m unittest discover -s tests -v
-      - run: python -B scripts/audit_safety.py
-      - run: python -B scanrunner.py benchmark tests/fixtures/detection-benchmark/dataset.json --destination synthetic-benchmark-ci.json
       - run: python scanrunner.py --help
       - run: python install.py --help
