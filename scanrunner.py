@@ -326,6 +326,14 @@ def strip_inline_comment(line):
     """
     return line.split("#")[0].strip()
 
+def is_ipv6_target(target):
+    """Return whether target is an IPv6 address or subnet."""
+    try:
+        return ipaddress.ip_network(target.split("%", 1)[0], strict=False).version == 6
+    except ValueError:
+        return False
+
+
 def has_nmap_option(nmap_extra, option):
     """Return whether an option is present, including --option=value form."""
     return any(token == option or token.startswith(f"{option}=")
@@ -1922,6 +1930,10 @@ def _build_nmap_command(target, output_file, nmap_extra, use_pn=False):
 
     if use_pn and not has_nmap_option(nmap_extra, "-Pn"):
         cmd.append("-Pn")
+
+    # Nmap refuses an IPv6 address or subnet without -6.
+    if is_ipv6_target(target) and "-6" not in nmap_extra:
+        cmd.append("-6")
 
     if nmap_extra:
         cmd.extend(nmap_extra)

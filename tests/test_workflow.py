@@ -581,6 +581,15 @@ class NxcTests(unittest.TestCase):
         self.assertEqual(command[-4:], ["-u", "", "-p", ""])
 
 
+class NmapCommandTests(unittest.TestCase):
+    def test_ipv6_targets_get_dash_6_once(self):
+        for target, extra, expected in (("fd77::11", [], 1), ("fd77::/120", [], 1),
+                                        ("fd77::11", ["-6"], 1), ("10.0.0.1", [], 0),
+                                        ("web.lab", [], 0)):
+            command = sr._build_nmap_command(target, "out.txt", extra)
+            self.assertEqual(command.count("-6"), expected, target)
+
+
 class FatalErrorTests(unittest.TestCase):
     def test_markers(self):
         self.assertIn("root", sr.nmap_fatal_reason(
