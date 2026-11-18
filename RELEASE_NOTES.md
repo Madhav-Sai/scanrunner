@@ -26,6 +26,12 @@ PingMe on top.
 
 ## Fixes
 
+- `--pingme` works with CIDR and `10.0.0.1-20` range targets (PingMe only reads
+  single hosts from a file, so these failed with "No valid IPs")
+- `--tabs`: the launching window prints the summary and `Reconciliation OK` once
+  every tab finishes (Linux tab windows close when their part is done)
+- NXC table keeps the OS from the host banner; `--shares` output no longer
+  replaces it with share rows
 - Tabs on Windows no longer lose outcome log lines (and report finished targets
   as unaccounted): concurrent appends to `completed.txt` etc. are now locked
 - NetExec/Nmap output is read as UTF-8, so Windows doesn't garble or crash on it
