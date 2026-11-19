@@ -1,3 +1,16 @@
+# scanrunner v1.7.3
+
+## Changes
+
+- Tab windows opened by `--tabs` (or the large-list prompt) now close by
+  themselves once their part finishes cleanly; the launching window still
+  shows the combined summary and reconciliation
+- A tab stays open (press Enter to close) only if its scanrunner exits with
+  an error, so the error stays readable. This applies on Linux, in the
+  Windows `cmd` fallback window, and in Windows Terminal (its default
+  behaviour). On macOS the window closes if the Terminal profile's "When the
+  shell exits" setting allows it
+
 # scanrunner v1.7.2
 
 ## Changes
