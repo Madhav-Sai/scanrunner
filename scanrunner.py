@@ -2600,18 +2600,23 @@ def _spawn_windows_terminal(command, title, cwd):
         except OSError:
             pass
     try:
-        # cmd /k keeps the window open after the scan finishes so results
-        # stay visible; start opens it as a separate window (best effort
-        # when Windows Terminal itself is unavailable).
+        # cmd /c closes the window once the scan finishes cleanly; "|| pause"
+        # holds it open on an error. (Windows Terminal above does the same by
+        # default: its closeOnExit "automatic" closes only on exit code 0.)
+        # start opens it as a separate window (best effort when Windows
+        # Terminal itself is unavailable).
         quoted = subprocess.list2cmdline(command)
-        subprocess.Popen(f'start "{title}" cmd /k "{quoted}"', cwd=cwd, shell=True)
+        subprocess.Popen(f'start "{title}" cmd /c "{quoted} || pause"', cwd=cwd, shell=True)
         return True
     except OSError:
         return False
 
 
 def _spawn_macos_terminal(command, title, cwd):
-    shell_command = f"cd {shlex.quote(cwd)} && " + " ".join(shlex.quote(part) for part in command)
+    # "&& exit" ends the shell after a clean finish so the window can close
+    # (Terminal closes it if the profile's "When the shell exits" allows).
+    shell_command = (f"cd {shlex.quote(cwd)} && "
+                     + " ".join(shlex.quote(part) for part in command) + " && exit")
     # Escape for an AppleScript string literal, or a " or \ in an argument
     # (e.g. --script-args 'ua="x"') would end the string early.
     escaped = shell_command.replace("\\", "\\\\").replace('"', '\\"')
@@ -2635,7 +2640,11 @@ def _terminal_failed_to_start(process, grace=0.5):
         return False   # still running — the window is up
 
 
-_TAB_DONE = 'printf "\\n  [scanrunner] This tab is done. Press Enter to close it. "; read _'
+# A tab closes by itself once its part finishes cleanly (the launching window
+# shows the combined summary); it stays open only when scanrunner fails, so
+# the error is still readable. Appended after the command as "cmd || ...".
+_TAB_FAILED = ('{ printf "\\n  [scanrunner] This tab stopped with an error. '
+               'Press Enter to close it. "; read _; }')
 
 
 def _tab_script(command):
@@ -2645,15 +2654,14 @@ def _tab_script(command):
     handle, path = tempfile.mkstemp(prefix="scanrunner-tab-", suffix=".sh")
     with os.fdopen(handle, "w", encoding="utf-8") as script:
         script.write('rm -f -- "$0"\n' + " ".join(shlex.quote(part) for part in command)
-                     + "\n" + _TAB_DONE + "\n")
+                     + " || " + _TAB_FAILED + "\n")
     return path
 
 
 def _spawn_linux_terminal(command, title, cwd):
-    # Keep the tab open after its part finishes so its results and any errors
-    # stay readable, as Windows (cmd /k) and macOS Terminal already do.
+    # Close the tab when its part finishes cleanly; hold it open on an error.
     original_command = command
-    command = ["sh", "-c", '"$@"; ' + _TAB_DONE, "scanrunner-tab", *command]
+    command = ["sh", "-c", '"$@" || ' + _TAB_FAILED, "scanrunner-tab", *command]
     if os.environ.get("TMUX"):
         try:
             process = subprocess.Popen(["tmux", "new-window", "-n", title, "-c", cwd, *command])

@@ -1,6 +1,7 @@
 import importlib.util
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -304,7 +305,7 @@ class TerminalTabTests(unittest.TestCase):
             self.assertEqual(background_spawn.call_count, 2)
 
 
-    def test_linux_tab_stays_open_after_its_scan(self):
+    def test_linux_tab_closes_after_clean_scan_and_holds_on_error(self):
         process = mock.Mock()
         process.wait.side_effect = subprocess.TimeoutExpired("x", 0.5)
         with mock.patch.dict(os.environ, {"DISPLAY": ":0"}, clear=True), \
@@ -315,8 +316,19 @@ class TerminalTabTests(unittest.TestCase):
         argv = popen.call_args[0][0]
         self.assertEqual(argv[:4], ["/usr/bin/xterm", "-T", "tab 1/2", "-e"])
         self.assertEqual(argv[4:6], ["sh", "-c"])
+        self.assertTrue(argv[6].startswith('"$@" || '))
         self.assertIn("read", argv[6])
         self.assertEqual(argv[-3:], ["scanrunner", "-f", "t 1.txt"])
+
+    @unittest.skipUnless(shutil.which("sh"), "needs a POSIX sh")
+    def test_tab_wrapper_only_waits_when_the_scan_fails(self):
+        wrapper = '"$@" || ' + sr._TAB_FAILED
+        ok = subprocess.run(["sh", "-c", wrapper, "tab", "sh", "-c", "exit 0"],
+                            input="", capture_output=True, text=True, timeout=10)
+        self.assertNotIn("Press Enter", ok.stdout)
+        failed = subprocess.run(["sh", "-c", wrapper, "tab", "sh", "-c", "exit 3"],
+                                input="\n", capture_output=True, text=True, timeout=10)
+        self.assertIn("stopped with an error", failed.stdout)
 
     def test_dash_e_string_terminals_get_a_script_not_a_quoted_string(self):
         # qterminal splits "-e STRING" itself and breaks quoting such as "it's".
@@ -336,8 +348,9 @@ class TerminalTabTests(unittest.TestCase):
                 lines = f.read().splitlines()
         finally:
             os.remove(script)
-        self.assertEqual(shlex.split(lines[1]), ["scanrunner", "--script-args", "ua='a b'"])
-        self.assertIn("read _", lines[2])
+        command, _, on_error = lines[1].partition(" || ")
+        self.assertEqual(shlex.split(command), ["scanrunner", "--script-args", "ua='a b'"])
+        self.assertIn("read _", on_error)
 
 
     def test_macos_tab_command_survives_applescript_quoting(self):
@@ -356,7 +369,7 @@ class TerminalTabTests(unittest.TestCase):
                 self.assertNotEqual(literal[i], '"', "unescaped quote ends the string")
             decoded += literal[i]
             i += 1
-        self.assertEqual(shlex.split(decoded), ["cd", "/w d", "&&", *command])
+        self.assertEqual(shlex.split(decoded), ["cd", "/w d", "&&", *command, "&&", "exit"])
 
 
     def test_windows_terminal_semicolons_stay_in_the_argument(self):

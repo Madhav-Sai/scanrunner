@@ -427,6 +427,9 @@ A `tab-manifest.txt` and each tab's target-list file live under
 terminal emulator can be opened (for example, a headless shell), that tab
 runs in the background instead, with its own console log under
 `<output>/tabs/` to watch — a batch of targets is never silently dropped.
+Each tab window closes by itself once its part finishes cleanly; it stays
+open (press Enter to close) only if that tab's scanrunner exits with an
+error, so the error stays readable.
 
 This window doesn't just launch and walk away — it stays open and shows a
 live, self-updating dashboard of combined progress across every tab
